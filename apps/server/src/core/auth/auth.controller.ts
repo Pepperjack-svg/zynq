@@ -34,6 +34,17 @@ export class AuthController {
     private configService: ConfigService,
   ) {}
 
+  private cookieOptions() {
+    const domain = this.configService.get<string>('COOKIE_DOMAIN');
+    return {
+      httpOnly: true,
+      secure: this.configService.get('NODE_ENV') === 'production',
+      sameSite: 'strict' as const,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      ...(domain && domain !== 'localhost' ? { domain } : {}),
+    };
+  }
+
   /** Returns whether initial admin setup is required (no users exist). */
   @Get('setup-status')
   async getSetupStatus() {
@@ -51,12 +62,7 @@ export class AuthController {
     const user = await this.authService.register(registerDto);
     const token = this.authService.generateJwtToken(user);
 
-    response.cookie('jid', token, {
-      httpOnly: true,
-      secure: this.configService.get('NODE_ENV') === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    response.cookie('jid', token, this.cookieOptions());
 
     const { password_hash: _, ...userWithoutPassword } = user;
     return { ...userWithoutPassword, token };
@@ -73,12 +79,7 @@ export class AuthController {
     const user = await this.authService.login(loginDto);
     const token = this.authService.generateJwtToken(user);
 
-    response.cookie('jid', token, {
-      httpOnly: true,
-      secure: this.configService.get('NODE_ENV') === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    response.cookie('jid', token, this.cookieOptions());
 
     const { password_hash: _, ...userWithoutPassword } = user;
     return { ...userWithoutPassword, token };
@@ -108,7 +109,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   logout(@Res({ passthrough: true }) response: Response) {
-    response.clearCookie('jid');
+    response.clearCookie('jid', this.cookieOptions());
     return { success: true };
   }
 

@@ -178,7 +178,10 @@ describe('AuthController', () => {
     it('should clear jid cookie and return success', () => {
       const result = controller.logout(mockResponse);
 
-      expect(mockResponse.clearCookie).toHaveBeenCalledWith('jid');
+      expect(mockResponse.clearCookie).toHaveBeenCalledWith(
+        'jid',
+        expect.objectContaining({ httpOnly: true }),
+      );
       expect(result).toEqual({ success: true });
     });
   });

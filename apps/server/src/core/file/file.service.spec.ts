@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { FileService } from './file.service';
 import { File } from './entities/file.entity';
 import { Share, SharePermission } from '../share/entities/share.entity';
@@ -93,6 +94,15 @@ describe('FileService', () => {
           useValue: {
             findById: jest.fn(),
             updateStorageUsed: jest.fn(),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockImplementation((key: string) => {
+              if (key === 'FRONTEND_URL') return 'http://localhost:3000';
+              return undefined;
+            }),
           },
         },
       ],

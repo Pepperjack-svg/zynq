@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, Not, In } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { File } from './entities/file.entity';
 import { Share } from '../share/entities/share.entity';
 import { StorageService } from '../storage/storage.service';
@@ -52,6 +53,7 @@ export class FileService {
     private sharesRepository: Repository<Share>,
     private storageService: StorageService,
     private userService: UserService,
+    private configService: ConfigService,
   ) {}
 
   private resolveStorageTarget(
@@ -527,7 +529,7 @@ export class FileService {
     return {
       ...saved,
       publicLink: shareDto.isPublic
-        ? `${process.env.FRONTEND_URL || 'http://localhost:3000'}/share/${saved.share_token}`
+        ? `${this.configService.get('FRONTEND_URL') || 'http://localhost:3000'}/share/${saved.share_token}`
         : null,
     };
   }
