@@ -169,11 +169,8 @@ export class EmailService {
     return this.configService.get('EMAIL_ENABLED') === 'true';
   }
 
-  /** Tests SMTP connection. Throws if SMTP is disabled or connection fails. */
+  /** Tests SMTP connection. Caller must verify SMTP is enabled before calling. Throws if connection fails. */
   async testConnection(): Promise<boolean> {
-    if (!(await this.isSmtpEnabled())) {
-      throw new Error('SMTP is disabled by administrator');
-    }
     const transporter = await this.getTransporter();
     await transporter.verify();
     return true;
@@ -269,11 +266,8 @@ If you did not request a password reset, ignore this email.
     });
   }
 
-  /** Sends a basic SMTP test email to a receiver address. */
+  /** Sends a basic SMTP test email to a receiver address. Caller must verify SMTP is enabled before calling. */
   async sendTestEmail(receiver: string): Promise<void> {
-    if (!(await this.isSmtpEnabled())) {
-      throw new Error('SMTP is disabled by administrator');
-    }
     const config = await this.getSmtpConfig();
     const transporter = await this.getTransporter();
 

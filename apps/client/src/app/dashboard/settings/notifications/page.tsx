@@ -78,7 +78,7 @@ export default function NotificationsPage() {
     try {
       setLoading(true);
       const data = await smtpApi.getSettings();
-      setSmtpEnabled(!!data.smtp_enabled);
+      setSmtpEnabled(data.smtp_enabled);
       setFormData({
         smtp_host: data.smtp_host || '',
         smtp_port: data.smtp_port || 587,

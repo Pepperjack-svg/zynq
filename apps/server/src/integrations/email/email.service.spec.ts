@@ -53,7 +53,10 @@ describe('EmailService', () => {
         {
           provide: SettingService,
           useValue: {
-            getGlobalSetting: jest.fn().mockResolvedValue(null),
+            getGlobalSetting: jest.fn().mockImplementation((key: string) => {
+              if (key === 'smtp_enabled') return Promise.resolve(true);
+              return Promise.resolve(null);
+            }),
           },
         },
       ],

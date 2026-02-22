@@ -43,14 +43,7 @@ export class SmtpController {
     const settings = await this.settingService.getGlobalSettings();
     const hasDbHost = !!settings.smtp_host;
 
-    // Resolve smtp_enabled: DB value takes precedence, then env var, default false
-    const dbEnabled = settings.smtp_enabled;
-    let smtpEnabled: boolean;
-    if (dbEnabled !== undefined && dbEnabled !== null) {
-      smtpEnabled = dbEnabled === true || dbEnabled === 'true';
-    } else {
-      smtpEnabled = this.configService.get('EMAIL_ENABLED') === 'true';
-    }
+    const smtpEnabled = await this.emailService.isSmtpEnabled();
 
     if (hasDbHost) {
       return {
@@ -89,7 +82,7 @@ export class SmtpController {
   @Put()
   async updateSmtpSettings(@Body() dto: UpdateSmtpSettingsDto) {
     const updateData: Record<string, any> = {
-      smtp_enabled: dto.smtp_enabled ?? false,
+      smtp_enabled: dto.smtp_enabled,
       smtp_host: dto.smtp_host,
       smtp_port: dto.smtp_port,
       smtp_secure: dto.smtp_secure,
@@ -106,8 +99,7 @@ export class SmtpController {
     this.emailService.invalidateTransporter();
 
     const savedEnabled = result.smtp_enabled;
-    const smtpEnabled =
-      savedEnabled === true || savedEnabled === 'true' ? true : false;
+    const smtpEnabled = savedEnabled === true || savedEnabled === 'true';
 
     return {
       smtp_enabled: smtpEnabled,
