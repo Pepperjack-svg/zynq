@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Loader2,
@@ -29,6 +30,7 @@ import {
   EyeOff,
   Bell,
   Send,
+  Info,
 } from 'lucide-react';
 import { smtpApi, ApiError } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -53,6 +55,7 @@ export default function NotificationsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [hasSavedPassword, setHasSavedPassword] = useState(false);
+  const [smtpEnabled, setSmtpEnabled] = useState(false);
 
   const [formData, setFormData] = useState({
     smtp_host: '',
@@ -75,6 +78,7 @@ export default function NotificationsPage() {
     try {
       setLoading(true);
       const data = await smtpApi.getSettings();
+      setSmtpEnabled(data.smtp_enabled);
       setFormData({
         smtp_host: data.smtp_host || '',
         smtp_port: data.smtp_port || 587,
@@ -99,6 +103,7 @@ export default function NotificationsPage() {
 
     try {
       await smtpApi.updateSettings({
+        smtp_enabled: smtpEnabled,
         smtp_host: formData.smtp_host,
         smtp_port: formData.smtp_port,
         smtp_secure: formData.smtp_secure,
@@ -247,129 +252,170 @@ export default function NotificationsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="smtp_host">SMTP Host</Label>
-                  <Input
-                    id="smtp_host"
-                    placeholder="smtp.gmail.com"
-                    value={formData.smtp_host}
-                    onChange={(e) =>
-                      setFormData({ ...formData, smtp_host: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="smtp_port">SMTP Port</Label>
-                  <Input
-                    id="smtp_port"
-                    type="number"
-                    placeholder="587"
-                    value={formData.smtp_port}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        smtp_port: parseInt(e.target.value) || 587,
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
+              {/* Enable toggle */}
               <div className="space-y-2">
-                <Label>Connection Type</Label>
-                <Select
-                  value={formData.smtp_secure ? 'ssl' : 'starttls'}
-                  onValueChange={(value) => {
-                    if (value === 'ssl') {
-                      setFormData({
-                        ...formData,
-                        smtp_secure: true,
-                        smtp_port: 465,
-                      });
-                    } else {
-                      setFormData({
-                        ...formData,
-                        smtp_secure: false,
-                        smtp_port: 587,
-                      });
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-full sm:w-72">
-                    <SelectValue placeholder="Select connection type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ssl">SSL/TLS (Port 465)</SelectItem>
-                    <SelectItem value="starttls">
-                      STARTTLS (Port 587)
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-sm text-muted-foreground">
-                  Choose SSL/TLS for port 465 or STARTTLS for port 587.
-                </p>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="smtp_user">Username</Label>
-                  <Input
-                    id="smtp_user"
-                    placeholder="your-email@gmail.com"
-                    value={formData.smtp_user}
-                    onChange={(e) =>
-                      setFormData({ ...formData, smtp_user: e.target.value })
-                    }
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="smtp_enabled"
+                    checked={smtpEnabled}
+                    onCheckedChange={setSmtpEnabled}
                   />
+                  <Label
+                    htmlFor="smtp_enabled"
+                    className="text-base font-medium cursor-pointer"
+                  >
+                    Enable Email Notifications
+                  </Label>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="smtp_pass">Password / App Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="smtp_pass"
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="••••••••"
-                      value={formData.smtp_pass}
-                      onChange={(e) =>
-                        setFormData({ ...formData, smtp_pass: e.target.value })
-                      }
-                      className="pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </button>
+                <p className="text-sm text-muted-foreground pl-[52px]">
+                  Enable to allow password resets, invites, and alerts via
+                  email.
+                </p>
+                {!smtpEnabled && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-muted text-muted-foreground text-sm">
+                    <Info className="h-4 w-4 shrink-0" />
+                    Email notifications are currently disabled.
                   </div>
-                  {hasSavedPassword && !formData.smtp_pass && (
-                    <p className="text-xs text-muted-foreground">
-                      Password is saved.
-                    </p>
-                  )}
-                </div>
+                )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="smtp_from">From Address</Label>
-                <Input
-                  id="smtp_from"
-                  placeholder="ZynqCloud <no-reply@yourdomain.com>"
-                  value={formData.smtp_from}
-                  onChange={(e) =>
-                    setFormData({ ...formData, smtp_from: e.target.value })
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  The sender address that appears in emails (e.g.,
-                  &quot;ZynqCloud &lt;no-reply@example.com&gt;&quot;)
-                </p>
+              <div
+                className={`space-y-6 transition-opacity duration-200 ${!smtpEnabled ? 'opacity-50 pointer-events-none' : ''}`}
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp_host">SMTP Host</Label>
+                    <Input
+                      id="smtp_host"
+                      placeholder="smtp.gmail.com"
+                      value={formData.smtp_host}
+                      disabled={!smtpEnabled}
+                      onChange={(e) =>
+                        setFormData({ ...formData, smtp_host: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp_port">SMTP Port</Label>
+                    <Input
+                      id="smtp_port"
+                      type="number"
+                      placeholder="587"
+                      value={formData.smtp_port}
+                      disabled={!smtpEnabled}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          smtp_port: parseInt(e.target.value) || 587,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Connection Type</Label>
+                  <Select
+                    value={formData.smtp_secure ? 'ssl' : 'starttls'}
+                    disabled={!smtpEnabled}
+                    onValueChange={(value) => {
+                      if (value === 'ssl') {
+                        setFormData({
+                          ...formData,
+                          smtp_secure: true,
+                          smtp_port: 465,
+                        });
+                      } else {
+                        setFormData({
+                          ...formData,
+                          smtp_secure: false,
+                          smtp_port: 587,
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full sm:w-72">
+                      <SelectValue placeholder="Select connection type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ssl">SSL/TLS (Port 465)</SelectItem>
+                      <SelectItem value="starttls">
+                        STARTTLS (Port 587)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    Choose SSL/TLS for port 465 or STARTTLS for port 587.
+                  </p>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp_user">Username</Label>
+                    <Input
+                      id="smtp_user"
+                      placeholder="your-email@gmail.com"
+                      value={formData.smtp_user}
+                      disabled={!smtpEnabled}
+                      onChange={(e) =>
+                        setFormData({ ...formData, smtp_user: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="smtp_pass">Password / App Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="smtp_pass"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="••••••••"
+                        value={formData.smtp_pass}
+                        disabled={!smtpEnabled}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            smtp_pass: e.target.value,
+                          })
+                        }
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        disabled={!smtpEnabled}
+                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    {hasSavedPassword && !formData.smtp_pass && (
+                      <p className="text-xs text-muted-foreground">
+                        Password is saved.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="smtp_from">From Address</Label>
+                  <Input
+                    id="smtp_from"
+                    placeholder="ZynqCloud <no-reply@yourdomain.com>"
+                    value={formData.smtp_from}
+                    disabled={!smtpEnabled}
+                    onChange={(e) =>
+                      setFormData({ ...formData, smtp_from: e.target.value })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The sender address that appears in emails (e.g.,
+                    &quot;ZynqCloud &lt;no-reply@example.com&gt;&quot;)
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -389,6 +435,7 @@ export default function NotificationsPage() {
                   type="email"
                   placeholder="receiver@example.com"
                   value={testEmail}
+                  disabled={!smtpEnabled}
                   onChange={(e) => setTestEmail(e.target.value)}
                 />
               </div>
@@ -396,7 +443,10 @@ export default function NotificationsPage() {
                 <Button
                   onClick={handleSendTestEmail}
                   disabled={
-                    testingEmail || testingConnection || !formData.smtp_host
+                    !smtpEnabled ||
+                    testingEmail ||
+                    testingConnection ||
+                    !formData.smtp_host
                   }
                   className="bg-emerald-600 text-white hover:bg-emerald-700"
                 >
@@ -408,7 +458,10 @@ export default function NotificationsPage() {
                 <Button
                   onClick={handleTestConnection}
                   disabled={
-                    testingEmail || testingConnection || !formData.smtp_host
+                    !smtpEnabled ||
+                    testingEmail ||
+                    testingConnection ||
+                    !formData.smtp_host
                   }
                   className="bg-blue-600 text-white hover:bg-blue-700"
                 >

@@ -160,7 +160,16 @@ export class EmailService {
     return this.cachedTransporter;
   }
 
-  /** Tests SMTP connection. Throws if connection fails. */
+  /** Returns true if SMTP is enabled (DB setting takes precedence over env var). Defaults to false. */
+  async isSmtpEnabled(): Promise<boolean> {
+    const dbValue = await this.settingService.getGlobalSetting('smtp_enabled');
+    if (dbValue !== null && dbValue !== undefined) {
+      return dbValue === true || dbValue === 'true';
+    }
+    return this.configService.get('EMAIL_ENABLED') === 'true';
+  }
+
+  /** Tests SMTP connection. Caller must verify SMTP is enabled before calling. Throws if connection fails. */
   async testConnection(): Promise<boolean> {
     const transporter = await this.getTransporter();
     await transporter.verify();
@@ -180,6 +189,9 @@ export class EmailService {
     inviterName: string,
     expiresAt: Date,
   ): Promise<void> {
+    if (!(await this.isSmtpEnabled())) {
+      throw new Error('SMTP is disabled by administrator');
+    }
     const config = await this.getSmtpConfig();
     const transporter = await this.getTransporter();
 
@@ -218,6 +230,9 @@ If you did not request this invite, ignore this email.
     resetLink: string,
     userName: string,
   ): Promise<void> {
+    if (!(await this.isSmtpEnabled())) {
+      throw new Error('SMTP is disabled by administrator');
+    }
     const config = await this.getSmtpConfig();
     const transporter = await this.getTransporter();
 
@@ -251,7 +266,7 @@ If you did not request a password reset, ignore this email.
     });
   }
 
-  /** Sends a basic SMTP test email to a receiver address. */
+  /** Sends a basic SMTP test email to a receiver address. Caller must verify SMTP is enabled before calling. */
   async sendTestEmail(receiver: string): Promise<void> {
     const config = await this.getSmtpConfig();
     const transporter = await this.getTransporter();

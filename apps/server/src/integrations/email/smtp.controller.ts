@@ -43,8 +43,11 @@ export class SmtpController {
     const settings = await this.settingService.getGlobalSettings();
     const hasDbHost = !!settings.smtp_host;
 
+    const smtpEnabled = await this.emailService.isSmtpEnabled();
+
     if (hasDbHost) {
       return {
+        smtp_enabled: smtpEnabled,
         smtp_host: settings.smtp_host || '',
         smtp_port: settings.smtp_port || 587,
         smtp_secure: settings.smtp_secure || false,
@@ -65,6 +68,7 @@ export class SmtpController {
       this.configService.get('SMTP_FROM') || 'zynqCloud <no-reply@localhost>';
 
     return {
+      smtp_enabled: smtpEnabled,
       smtp_host: envHost,
       smtp_port: envPort,
       smtp_secure: envSecure,
@@ -78,6 +82,7 @@ export class SmtpController {
   @Put()
   async updateSmtpSettings(@Body() dto: UpdateSmtpSettingsDto) {
     const updateData: Record<string, any> = {
+      smtp_enabled: dto.smtp_enabled,
       smtp_host: dto.smtp_host,
       smtp_port: dto.smtp_port,
       smtp_secure: dto.smtp_secure,
@@ -93,7 +98,11 @@ export class SmtpController {
     const result = await this.settingService.updateGlobalSettings(updateData);
     this.emailService.invalidateTransporter();
 
+    const savedEnabled = result.smtp_enabled;
+    const smtpEnabled = savedEnabled === true || savedEnabled === 'true';
+
     return {
+      smtp_enabled: smtpEnabled,
       smtp_host: result.smtp_host || '',
       smtp_port: result.smtp_port || 587,
       smtp_secure: result.smtp_secure || false,
@@ -107,6 +116,14 @@ export class SmtpController {
   @Post('test')
   @HttpCode(HttpStatus.OK)
   async testSmtpConnection(@Body() dto: TestSmtpDto) {
+    const enabled = await this.emailService.isSmtpEnabled();
+    if (!enabled) {
+      return {
+        success: false,
+        message: 'SMTP is disabled. Enable it in settings first.',
+      };
+    }
+
     try {
       await this.emailService.testConnection();
       if (dto.email) {

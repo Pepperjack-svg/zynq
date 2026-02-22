@@ -1,6 +1,9 @@
 import { IsString, IsNumber, IsBoolean, IsOptional } from 'class-validator';
 
 export class UpdateSmtpSettingsDto {
+  @IsBoolean()
+  smtp_enabled: boolean;
+
   @IsString()
   smtp_host: string;
 

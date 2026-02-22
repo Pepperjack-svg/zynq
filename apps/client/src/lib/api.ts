@@ -550,6 +550,7 @@ export const settingsApi = {
 export const smtpApi = {
   getSettings: () =>
     fetchApi<{
+      smtp_enabled: boolean;
       smtp_host: string;
       smtp_port: number;
       smtp_secure: boolean;
@@ -560,6 +561,7 @@ export const smtpApi = {
     }>('/settings/smtp'),
 
   updateSettings: (data: {
+    smtp_enabled?: boolean;
     smtp_host: string;
     smtp_port: number;
     smtp_secure: boolean;
