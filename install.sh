@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# zynqcloud one-command installer
+# ZynqCloud one-command installer
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/DineshMN1/zynq/main/install.sh | bash
+#   bash install.sh             # zero-prompt, auto-generates secrets, starts stack
+#   bash install.sh --advanced  # prompts for install dir, domain, SMTP, registration
+#   bash install.sh --force     # overwrite existing .env (safe backup first)
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -17,30 +19,26 @@ NC='\033[0m'
 CHECK="${GREEN}✓${NC}"
 WARN="${YELLOW}!${NC}"
 INFO="${CYAN}→${NC}"
-APP_NAME="zynqcloud"
-APP_WORDMARK="ZYNQCLOUD"
+APP_NAME="ZynqCloud"
 
+# ── Defaults ─────────────────────────────────────────────────────────────────
 INSTALL_DIR="${INSTALL_DIR:-$HOME/zynqcloud}"
 DOMAIN="${DOMAIN:-localhost}"
 APP_PORT="${APP_PORT:-3000}"
 APP_IMAGE="${ZYNQCLOUD_IMAGE:-dineshmn1/zynqcloud:latest}"
 DATA_PATH="${ZYNQ_DATA_PATH:-${INSTALL_DIR}/data/files}"
 DATA_PATH_SET="false"
-if [ "${ZYNQ_DATA_PATH+x}" = "x" ]; then
-  DATA_PATH_SET="true"
-fi
-SMTP_ENABLED="${EMAIL_ENABLED:-false}"
-TEMPLATE_ONLY="false"
-NON_INTERACTIVE="${ZYNQ_NON_INTERACTIVE:-false}"
-USE_HTTPS="${USE_HTTPS:-auto}"
-AUTO_START="${AUTO_START:-ask}"
+if [ "${ZYNQ_DATA_PATH+x}" = "x" ]; then DATA_PATH_SET="true"; fi
 
+# SMTP defaults (disabled — controlled via Admin UI at runtime)
+SMTP_ENABLED="false"
 SMTP_HOST="${SMTP_HOST:-smtp.example.com}"
 SMTP_PORT="${SMTP_PORT:-587}"
 SMTP_SECURE="${SMTP_SECURE:-false}"
 SMTP_USER="${SMTP_USER:-}"
 SMTP_PASS="${SMTP_PASS:-}"
-SMTP_FROM="${SMTP_FROM:-zynqcloud <no-reply@localhost>}"
+SMTP_FROM="${SMTP_FROM:-ZynqCloud <no-reply@localhost>}"
+
 DATABASE_USER="${DATABASE_USER:-${POSTGRES_USER:-zynqcloud}}"
 DATABASE_NAME="${DATABASE_NAME:-${POSTGRES_DB:-zynqcloud}}"
 DATABASE_PASSWORD="${DATABASE_PASSWORD:-${POSTGRES_PASSWORD:-}}"
@@ -50,242 +48,131 @@ PUBLIC_REGISTRATION="${PUBLIC_REGISTRATION:-false}"
 INVITE_TOKEN_TTL_HOURS="${INVITE_TOKEN_TTL_HOURS:-72}"
 RATE_LIMIT_TTL="${RATE_LIMIT_TTL:-60000}"
 RATE_LIMIT_MAX="${RATE_LIMIT_MAX:-100}"
-EDIT_ENV="${EDIT_ENV:-ask}"
+USE_HTTPS="${USE_HTTPS:-auto}"
+EDIT_ENV="${EDIT_ENV:-false}"
 
+# Installer mode flags
+NON_INTERACTIVE="true"    # Default: zero prompts
+FORCE_OVERWRITE="false"   # --force: overwrite existing .env
+INIT_ONLY="false"         # --init-only: write files, do not start
+
+# ── Logging helpers ───────────────────────────────────────────────────────────
+log()  { echo -e "${INFO} $*"; }
+ok()   { echo -e "${CHECK} $*"; }
+warn() { echo -e "${WARN} $*"; }
+err()  { echo -e "${RED}✗ $*${NC}"; }
+
+# ── Usage ─────────────────────────────────────────────────────────────────────
 usage() {
   cat <<USAGE
-${APP_NAME} installer
+${APP_NAME} Installer
+
+Usage:
+  bash install.sh [options]
 
 Options:
+  --advanced             Prompt for install directory, domain, SMTP, and registration
+  --force                Overwrite existing .env (a backup is created first)
   --dir <path>           Install directory (default: \$HOME/zynqcloud)
-  --domain <host>        Public domain/ip (default: localhost)
-  --port <port>          Host port for app (default: 3000)
+  --domain <host>        Public domain or IP (default: localhost)
+  --port <port>          Host port for the app (default: 3000)
   --image <image:tag>    Docker image (default: dineshmn1/zynqcloud:latest)
-  --data-path <path>     Host path for user files
-  --smtp-enable          Enable SMTP in generated .env
+  --use-https <auto|true|false>
+  --init-only            Write config files only, do not start containers
+  --edit-env             Open generated .env in editor before starting
+  --no-edit-env          Skip editor prompt (default)
+  --smtp-enable          Pre-enable SMTP in .env (also configurable via Admin UI)
   --smtp-host <host>
   --smtp-port <port>
   --smtp-secure <bool>
   --smtp-user <user>
   --smtp-pass <pass>
   --smtp-from <from>
-  --use-https <auto|true|false>
-  --start                Start containers after generating config
-  --init-only            Generate files/config only, do not start containers
-  --edit-env             Open generated .env in editor before start
-  --no-edit-env          Do not open .env editor
-  --template-only        Generate files only, do not start containers
-  --interactive          Enable prompts for setup values
-  --non-interactive      Never prompt; use defaults/flags/env
-  --help                 Show this help
+  --help, -h             Show this help
+
+Examples:
+  bash install.sh
+  bash install.sh --advanced
+  bash install.sh --force
+  bash install.sh --domain mycloud.example.com --port 8080
 USAGE
 }
 
-log() {
-  echo -e "${INFO} $*"
-}
-
-ok() {
-  echo -e "${CHECK} $*"
-}
-
-warn() {
-  echo -e "${WARN} $*"
-}
-
-need_cmd() {
-  command -v "$1" >/dev/null 2>&1 || {
-    echo -e "${RED}Missing required command: $1${NC}"
-    exit 1
+# ── Argument parsing ───────────────────────────────────────────────────────────
+parse_args() {
+  require_value() {
+    if [ $# -lt 2 ] || [ -z "${2:-}" ] || [ "${2#--}" != "$2" ]; then
+      err "Missing value for option: $1"
+      usage; exit 1
+    fi
   }
-}
 
-# Detect OS type: linux, mac, windows
-detect_os() {
-  case "$(uname -s 2>/dev/null)" in
-    Linux*)  echo "linux" ;;
-    Darwin*) echo "mac" ;;
-    MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
-    *)       echo "unknown" ;;
-  esac
-}
-
-ensure_docker() {
-  if command -v docker >/dev/null 2>&1; then
-    return 0
-  fi
-
-  local os
-  os=$(detect_os)
-  echo -e "${YELLOW}Docker is not installed.${NC}"
-
-  if [ "$NON_INTERACTIVE" = "true" ] || ! is_tty; then
-    echo -e "${RED}Please install Docker and re-run this script.${NC}"
-    case "$os" in
-      linux)   echo "  curl -fsSL https://get.docker.com | sh" ;;
-      mac)     echo "  brew install --cask docker  OR  https://docs.docker.com/desktop/install/mac-install/" ;;
-      windows) echo "  https://docs.docker.com/desktop/install/windows-install/" ;;
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --advanced)      NON_INTERACTIVE="false"; shift ;;
+      --force)         FORCE_OVERWRITE="true"; shift ;;
+      --dir)           require_value "$@"; INSTALL_DIR="$2"; shift 2 ;;
+      --domain)        require_value "$@"; DOMAIN="$2"; shift 2 ;;
+      --port)          require_value "$@"; APP_PORT="$2"; shift 2 ;;
+      --image)         require_value "$@"; APP_IMAGE="$2"; shift 2 ;;
+      --use-https)     require_value "$@"; USE_HTTPS="$2"; shift 2 ;;
+      --init-only)     INIT_ONLY="true"; shift ;;
+      --edit-env)      EDIT_ENV="true"; shift ;;
+      --no-edit-env)   EDIT_ENV="false"; shift ;;
+      --smtp-enable)   SMTP_ENABLED="true"; shift ;;
+      --smtp-host)     require_value "$@"; SMTP_HOST="$2"; shift 2 ;;
+      --smtp-port)     require_value "$@"; SMTP_PORT="$2"; shift 2 ;;
+      --smtp-secure)   require_value "$@"; SMTP_SECURE="$2"; shift 2 ;;
+      --smtp-user)     require_value "$@"; SMTP_USER="$2"; shift 2 ;;
+      --smtp-pass)     require_value "$@"; SMTP_PASS="$2"; shift 2 ;;
+      --smtp-from)     require_value "$@"; SMTP_FROM="$2"; shift 2 ;;
+      --help|-h)       usage; exit 0 ;;
+      *)
+        err "Unknown option: $1"
+        usage; exit 1
+        ;;
     esac
-    exit 1
+  done
+
+  if [ "$DATA_PATH_SET" != "true" ]; then
+    DATA_PATH="${INSTALL_DIR}/data/files"
   fi
-
-  echo -en "${CYAN}?${NC} Install Docker automatically? (y/N): "
-  local ans
-  read -r ans
-  case "$ans" in
-    [yY]|[yY][eE][sS])
-      case "$os" in
-        linux)
-          echo -e "${INFO} Installing Docker via get.docker.com..."
-          curl -fsSL https://get.docker.com | sh
-          if ! command -v docker >/dev/null 2>&1; then
-            echo -e "${RED}Docker install failed. Please install manually.${NC}"
-            exit 1
-          fi
-          # Add current user to docker group (non-root)
-          if [ "$(id -u)" -ne 0 ] && getent group docker >/dev/null 2>&1; then
-            sudo usermod -aG docker "$USER" 2>/dev/null || true
-            echo -e "${WARN} You may need to log out and back in for Docker group membership to take effect."
-            echo -e "${INFO} For this session, commands will run with: sudo docker"
-          fi
-          ;;
-        mac)
-          if command -v brew >/dev/null 2>&1; then
-            echo -e "${INFO} Installing Docker Desktop via Homebrew..."
-            brew install --cask docker
-          else
-            echo -e "${RED}Homebrew not found. Install Docker Desktop from:${NC}"
-            echo "  https://docs.docker.com/desktop/install/mac-install/"
-            exit 1
-          fi
-          ;;
-        windows)
-          if command -v choco >/dev/null 2>&1; then
-            echo -e "${INFO} Installing Docker Desktop via Chocolatey..."
-            choco install docker-desktop -y
-          elif command -v winget >/dev/null 2>&1; then
-            echo -e "${INFO} Installing Docker Desktop via winget..."
-            winget install Docker.DockerDesktop
-          else
-            echo -e "${RED}Please install Docker Desktop manually from:${NC}"
-            echo "  https://docs.docker.com/desktop/install/windows-install/"
-            exit 1
-          fi
-          ;;
-        *)
-          echo -e "${RED}Unknown OS. Please install Docker manually: https://docs.docker.com/get-docker/${NC}"
-          exit 1
-          ;;
-      esac
-      echo -e "${CHECK} Docker installed."
-      ;;
-    *)
-      echo -e "${RED}Docker is required. Please install it and re-run.${NC}"
-      exit 1
-      ;;
-  esac
 }
 
-ensure_docker_compose() {
-  if docker compose version >/dev/null 2>&1; then
-    return 0
-  fi
-  # Fallback: try installing compose plugin on Linux
-  local os
-  os=$(detect_os)
-  echo -e "${YELLOW}Docker Compose plugin not found.${NC}"
-  if [ "$os" = "linux" ]; then
-    echo -e "${INFO} Attempting to install Docker Compose plugin..."
-    if command -v apt-get >/dev/null 2>&1; then
-      sudo apt-get install -y docker-compose-plugin 2>/dev/null || true
-    elif command -v yum >/dev/null 2>&1; then
-      sudo yum install -y docker-compose-plugin 2>/dev/null || true
-    elif command -v dnf >/dev/null 2>&1; then
-      sudo dnf install -y docker-compose-plugin 2>/dev/null || true
-    fi
-    if docker compose version >/dev/null 2>&1; then
-      echo -e "${CHECK} Docker Compose plugin installed."
-      return 0
-    fi
-  fi
-  echo -e "${RED}Docker Compose plugin is required. Install Docker Desktop or the compose plugin.${NC}"
-  echo "  https://docs.docker.com/compose/install/"
-  exit 1
-}
-
-print_banner() {
-  echo -e "${BLUE}Z Y N Q C L O U D${NC}"
-}
-
-is_tty() {
-  [ -t 0 ]
-}
-
-is_non_interactive_mode() {
-  [ "$NON_INTERACTIVE" = "true" ] || ! is_tty
-}
+# ── TTY / prompt helpers ───────────────────────────────────────────────────────
+is_tty() { [ -t 0 ]; }
 
 prompt() {
-  local var_name="$1"
-  local label="$2"
-  local default="$3"
-  local input
-
-  if is_non_interactive_mode; then
-    printf -v "$var_name" '%s' "$default"
-    return
+  local var_name="$1" label="$2" default="$3" input
+  if [ "$NON_INTERACTIVE" = "true" ] || ! is_tty; then
+    printf -v "$var_name" '%s' "$default"; return
   fi
-
   echo -en "${CYAN}?${NC} ${label} ${DIM}(${default})${NC}: "
   read -r input
-  if [ -z "${input}" ]; then
-    printf -v "$var_name" '%s' "$default"
-  else
-    printf -v "$var_name" '%s' "$input"
-  fi
+  printf -v "$var_name" '%s' "${input:-$default}"
 }
 
 prompt_secret() {
-  local var_name="$1"
-  local label="$2"
-  local default="$3"
-  local input
-
-  if is_non_interactive_mode; then
-    printf -v "$var_name" '%s' "$default"
-    return
+  local var_name="$1" label="$2" default="$3" input
+  if [ "$NON_INTERACTIVE" = "true" ] || ! is_tty; then
+    printf -v "$var_name" '%s' "$default"; return
   fi
-
   if [ -n "$default" ]; then
     echo -en "${CYAN}?${NC} ${label} ${DIM}(leave empty to keep existing)${NC}: "
   else
     echo -en "${CYAN}?${NC} ${label}: "
   fi
-  read -rs input
-  echo ""
-  if [ -z "$input" ]; then
-    printf -v "$var_name" '%s' "$default"
-  else
-    printf -v "$var_name" '%s' "$input"
-  fi
+  read -rs input; echo ""
+  printf -v "$var_name" '%s' "${input:-$default}"
 }
 
 prompt_yesno() {
-  local var_name="$1"
-  local label="$2"
-  local default="$3"
-  local input
-
-  if is_non_interactive_mode; then
-    printf -v "$var_name" '%s' "$default"
-    return
+  local var_name="$1" label="$2" default="$3" input
+  if [ "$NON_INTERACTIVE" = "true" ] || ! is_tty; then
+    printf -v "$var_name" '%s' "$default"; return
   fi
-
-  if [ "$default" = "true" ]; then
-    echo -en "${CYAN}?${NC} ${label} ${DIM}(Y/n)${NC}: "
-  else
-    echo -en "${CYAN}?${NC} ${label} ${DIM}(y/N)${NC}: "
-  fi
+  local hint; [ "$default" = "true" ] && hint="Y/n" || hint="y/N"
+  echo -en "${CYAN}?${NC} ${label} ${DIM}(${hint})${NC}: "
   read -r input
   input="$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]')"
   if [ -z "$input" ]; then
@@ -297,118 +184,7 @@ prompt_yesno() {
   fi
 }
 
-decode_base64() {
-  if command -v openssl >/dev/null 2>&1; then
-    openssl base64 -d -A 2>/dev/null
-    return
-  fi
-
-  if printf 'QQ==' | base64 --decode >/dev/null 2>&1; then
-    base64 --decode 2>/dev/null
-    return
-  fi
-
-  if printf 'QQ==' | base64 -d >/dev/null 2>&1; then
-    base64 -d 2>/dev/null
-    return
-  fi
-
-  base64 -D 2>/dev/null
-}
-
-is_valid_base64_32() {
-  local key="$1"
-  local decoded_len
-
-  if [ -z "$key" ]; then
-    return 1
-  fi
-
-  decoded_len="$(printf '%s' "$key" | decode_base64 | wc -c | tr -d '[:space:]')" || return 1
-  [ "$decoded_len" = "32" ]
-}
-
-is_valid_jwt_secret() {
-  local secret="$1"
-  [ "${#secret}" -ge 32 ]
-}
-
-prompt_jwt_secret() {
-  if is_non_interactive_mode; then
-    if ! is_valid_jwt_secret "$JWT_SECRET"; then
-      JWT_SECRET="$(generate_base64_32)"
-      warn "Generated JWT_SECRET (missing/weak input)"
-    fi
-    return
-  fi
-
-  echo "JWT secret must be at least 32 characters."
-
-  while true; do
-    local choice
-    echo -en "${CYAN}?${NC} JWT secret: [g]enerate / [p]aste ${DIM}(default: g)${NC}: "
-    read -r choice
-    choice="$(printf '%s' "$choice" | tr '[:upper:]' '[:lower:]')"
-    [ -z "$choice" ] && choice="g"
-
-    case "$choice" in
-      g|generate)
-        JWT_SECRET="$(generate_base64_32)"
-        ok "Generated JWT_SECRET"
-        return
-        ;;
-      p|paste)
-        prompt_secret JWT_SECRET "Paste JWT secret (min 32 chars)" ""
-        if is_valid_jwt_secret "$JWT_SECRET"; then
-          return
-        fi
-        warn "Invalid JWT secret. It must be at least 32 characters."
-        ;;
-      *)
-        warn "Invalid choice. Use 'g' (generate) or 'p' (paste)."
-        ;;
-    esac
-  done
-}
-
-prompt_file_encryption_key() {
-  if is_non_interactive_mode; then
-    if ! is_valid_base64_32 "$FILE_ENCRYPTION_MASTER_KEY"; then
-      FILE_ENCRYPTION_MASTER_KEY="$(generate_base64_32)"
-      warn "Generated FILE_ENCRYPTION_MASTER_KEY (missing/invalid input)"
-    fi
-    return
-  fi
-
-  echo "File encryption key must decode from base64 to exactly 32 bytes."
-
-  while true; do
-    local choice
-    echo -en "${CYAN}?${NC} File encryption master key: [g]enerate / [p]aste ${DIM}(default: g)${NC}: "
-    read -r choice
-    choice="$(printf '%s' "$choice" | tr '[:upper:]' '[:lower:]')"
-    [ -z "$choice" ] && choice="g"
-
-    case "$choice" in
-      g|generate)
-        FILE_ENCRYPTION_MASTER_KEY="$(generate_base64_32)"
-        ok "Generated FILE_ENCRYPTION_MASTER_KEY"
-        return
-        ;;
-      p|paste)
-        prompt_secret FILE_ENCRYPTION_MASTER_KEY "Paste file encryption master key (base64 32 bytes)" ""
-        if is_valid_base64_32 "$FILE_ENCRYPTION_MASTER_KEY"; then
-          return
-        fi
-        warn "Invalid key. It must be valid base64 and decode to exactly 32 bytes."
-        ;;
-      *)
-        warn "Invalid choice. Use 'g' (generate) or 'p' (paste)."
-        ;;
-    esac
-  done
-}
-
+# ── Secret generation helpers ─────────────────────────────────────────────────
 generate_base64_32() {
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -base64 32 | tr -d '\n'
@@ -425,6 +201,131 @@ generate_password() {
   fi
 }
 
+decode_base64() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl base64 -d -A 2>/dev/null; return
+  fi
+  if printf 'QQ==' | base64 --decode >/dev/null 2>&1; then
+    base64 --decode 2>/dev/null; return
+  fi
+  if printf 'QQ==' | base64 -d >/dev/null 2>&1; then
+    base64 -d 2>/dev/null; return
+  fi
+  base64 -D 2>/dev/null
+}
+
+is_valid_base64_32() {
+  local key="$1" decoded_len
+  [ -z "$key" ] && return 1
+  decoded_len="$(printf '%s' "$key" | decode_base64 | wc -c | tr -d '[:space:]')" || return 1
+  [ "$decoded_len" = "32" ]
+}
+
+is_valid_jwt_secret() {
+  [ "${#1}" -ge 32 ]
+}
+
+# ── OS detection ──────────────────────────────────────────────────────────────
+detect_os() {
+  case "$(uname -s 2>/dev/null)" in
+    Linux*)           echo "linux" ;;
+    Darwin*)          echo "mac" ;;
+    MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+    *)                echo "unknown" ;;
+  esac
+}
+
+# ── STEP 1: check_dependencies ────────────────────────────────────────────────
+check_dependencies() {
+  log "Checking dependencies"
+
+  # Docker
+  if ! command -v docker >/dev/null 2>&1; then
+    local os; os=$(detect_os)
+    err "Docker is not installed. Please install it and re-run."
+    case "$os" in
+      linux)   echo "  curl -fsSL https://get.docker.com | sh" ;;
+      mac)     echo "  https://docs.docker.com/desktop/install/mac-install/" ;;
+      windows) echo "  https://docs.docker.com/desktop/install/windows-install/" ;;
+    esac
+    exit 1
+  fi
+
+  # Docker Compose v2
+  if ! docker compose version >/dev/null 2>&1; then
+    local os; os=$(detect_os)
+    err "Docker Compose plugin (v2) is not installed."
+    if [ "$os" = "linux" ]; then
+      log "Attempting to install Docker Compose plugin..."
+      if command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get install -y docker-compose-plugin 2>/dev/null || true
+      elif command -v yum >/dev/null 2>&1; then
+        sudo yum install -y docker-compose-plugin 2>/dev/null || true
+      elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y docker-compose-plugin 2>/dev/null || true
+      fi
+      if docker compose version >/dev/null 2>&1; then
+        ok "Docker Compose plugin installed"
+        return 0
+      fi
+    fi
+    err "Please install Docker Desktop or the Docker Compose plugin."
+    echo "  https://docs.docker.com/compose/install/"
+    exit 1
+  fi
+
+  ok "Docker $(docker --version | awk '{print $3}' | tr -d ',')"
+  ok "Docker Compose $(docker compose version --short 2>/dev/null || echo 'v2')"
+}
+
+# ── STEP 2: configure_advanced (only when --advanced) ─────────────────────────
+configure_advanced() {
+  echo ""
+  echo -e "${CYAN}Advanced configuration — press Enter to accept defaults${NC}"
+  echo ""
+
+  local old_install_dir="$INSTALL_DIR"
+  prompt INSTALL_DIR "Install directory" "$INSTALL_DIR"
+  if [ "$DATA_PATH_SET" != "true" ] && [ "$DATA_PATH" = "${old_install_dir}/data/files" ]; then
+    DATA_PATH="${INSTALL_DIR}/data/files"
+  fi
+
+  prompt DOMAIN "Domain or IP" "$DOMAIN"
+  prompt_yesno PUBLIC_REGISTRATION "Enable public registration?" "$PUBLIC_REGISTRATION"
+
+  echo ""
+  echo -e "${DIM}SMTP (email notifications — can also be configured via Admin UI after install)${NC}"
+  prompt_yesno SMTP_ENABLED "Enable SMTP?" "$SMTP_ENABLED"
+  if [ "$SMTP_ENABLED" = "true" ]; then
+    prompt SMTP_HOST "SMTP host" "$SMTP_HOST"
+    prompt SMTP_PORT "SMTP port" "$SMTP_PORT"
+    prompt_yesno SMTP_SECURE "SMTP TLS/SSL?" "$SMTP_SECURE"
+    prompt SMTP_USER "SMTP username" "$SMTP_USER"
+    prompt_secret SMTP_PASS "SMTP password" "$SMTP_PASS"
+    prompt SMTP_FROM "From address" "$SMTP_FROM"
+  fi
+}
+
+# ── STEP 3: generate_secrets ──────────────────────────────────────────────────
+generate_secrets() {
+  log "Generating secrets"
+
+  if [ -z "$DATABASE_PASSWORD" ]; then
+    DATABASE_PASSWORD="$(generate_password)"
+  fi
+
+  if ! is_valid_jwt_secret "$JWT_SECRET"; then
+    JWT_SECRET="$(generate_base64_32)"
+  fi
+
+  if ! is_valid_base64_32 "$FILE_ENCRYPTION_MASTER_KEY"; then
+    FILE_ENCRYPTION_MASTER_KEY="$(generate_base64_32)"
+  fi
+
+  ok "Generated DATABASE_PASSWORD, JWT_SECRET, FILE_ENCRYPTION_MASTER_KEY"
+}
+
+# ── Download or copy docker-compose + .env.example ────────────────────────────
 download_or_copy_templates() {
   local script_dir=""
   if [ -n "${BASH_SOURCE[0]:-}" ]; then
@@ -438,7 +339,7 @@ download_or_copy_templates() {
   if [ -n "$script_dir" ] && [ -f "$script_dir/docker-compose.yml" ] && [ -f "$script_dir/.env.example" ]; then
     cp "$script_dir/docker-compose.yml" "$INSTALL_DIR/docker-compose.yml"
     cp "$script_dir/.env.example" "$INSTALL_DIR/.env.example"
-    ok "Copied local templates"
+    ok "Copied deployment templates"
   else
     cat > "$INSTALL_DIR/docker-compose.yml" <<'COMPOSEEOF'
 services:
@@ -525,187 +426,25 @@ volumes:
     driver: local
   zynq_files:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${ZYNQ_DATA_PATH:?ZYNQ_DATA_PATH is required}
 
 networks:
   zynqcloud-network:
     driver: bridge
 COMPOSEEOF
-
-    cat > "$INSTALL_DIR/.env.example" <<'ENVEXAMPLEEOF'
-# ============================================================
-# zynqcloud Self-Host Environment
-# Copy this file to .env before running `docker compose up -d`
-# ============================================================
-
-# Docker image to pull
-ZYNQCLOUD_IMAGE=dineshmn1/zynqcloud:latest
-
-# Public port on host (host:container => APP_PORT:80)
-APP_PORT=3000
-
-# Database (used by postgres service and app)
-DATABASE_HOST=postgres
-DATABASE_PORT=5432
-DATABASE_USER=zynqcloud
-DATABASE_PASSWORD=change_this_db_password
-DATABASE_NAME=zynqcloud
-
-# Auth / crypto (required)
-JWT_SECRET=replace_with_strong_secret_at_least_32_chars
-JWT_EXPIRES_IN=7d
-COOKIE_DOMAIN=localhost
-FILE_ENCRYPTION_MASTER_KEY=replace_with_32_byte_base64_key
-
-# File storage on host
-ZYNQ_DATA_PATH=./data/files
-
-# App behavior
-EMAIL_ENABLED=false
-INVITE_TOKEN_TTL_HOURS=72
-PUBLIC_REGISTRATION=false
-RATE_LIMIT_TTL=60000
-RATE_LIMIT_MAX=100
-
-# URLs (use your real domain in production)
-CORS_ORIGIN=http://localhost:3000
-FRONTEND_URL=http://localhost:3000
-
-# SMTP (used when EMAIL_ENABLED=true)
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=
-SMTP_PASS=
-SMTP_FROM=zynqcloud <no-reply@yourdomain.com>
-ENVEXAMPLEEOF
-    ok "Wrote built-in templates"
+    ok "Wrote built-in docker-compose.yml"
   fi
 }
 
-parse_args() {
-  require_value() {
-    if [ $# -lt 2 ] || [ -z "${2:-}" ] || [ "${2#--}" != "$2" ]; then
-      echo -e "${RED}Missing value for option: $1${NC}"
-      usage
-      exit 1
-    fi
-  }
-
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --dir) require_value "$@"; INSTALL_DIR="$2"; shift 2 ;;
-      --domain) require_value "$@"; DOMAIN="$2"; shift 2 ;;
-      --port) require_value "$@"; APP_PORT="$2"; shift 2 ;;
-      --image) require_value "$@"; APP_IMAGE="$2"; shift 2 ;;
-      --data-path) require_value "$@"; DATA_PATH="$2"; DATA_PATH_SET="true"; shift 2 ;;
-      --smtp-enable) SMTP_ENABLED="true"; shift ;;
-      --smtp-host) require_value "$@"; SMTP_HOST="$2"; shift 2 ;;
-      --smtp-port) require_value "$@"; SMTP_PORT="$2"; shift 2 ;;
-      --smtp-secure) require_value "$@"; SMTP_SECURE="$2"; shift 2 ;;
-      --smtp-user) require_value "$@"; SMTP_USER="$2"; shift 2 ;;
-      --smtp-pass) require_value "$@"; SMTP_PASS="$2"; shift 2 ;;
-      --smtp-from) require_value "$@"; SMTP_FROM="$2"; shift 2 ;;
-      --use-https) require_value "$@"; USE_HTTPS="$2"; shift 2 ;;
-      --start) AUTO_START="true"; shift ;;
-      --init-only) TEMPLATE_ONLY="true"; AUTO_START="false"; shift ;;
-      --edit-env) EDIT_ENV="true"; shift ;;
-      --no-edit-env) EDIT_ENV="false"; shift ;;
-      --template-only) TEMPLATE_ONLY="true"; shift ;;
-      --interactive) NON_INTERACTIVE="false"; shift ;;
-      --non-interactive) NON_INTERACTIVE="true"; shift ;;
-      --help|-h) usage; exit 0 ;;
-      *)
-        echo -e "${RED}Unknown option: $1${NC}"
-        usage
-        exit 1
-        ;;
-    esac
-  done
-  if [ "$DATA_PATH_SET" != "true" ]; then
-    DATA_PATH="${INSTALL_DIR}/data/files"
-  fi
-}
-
-configure_interactive() {
-  local old_install_dir="$INSTALL_DIR"
-  prompt INSTALL_DIR "Install directory" "$INSTALL_DIR"
-  if [ "$DATA_PATH_SET" != "true" ] && [ "$DATA_PATH" = "${old_install_dir}/data/files" ]; then
-    DATA_PATH="${INSTALL_DIR}/data/files"
-  fi
-  prompt DOMAIN "Domain or IP" "$DOMAIN"
-  prompt APP_PORT "App port" "$APP_PORT"
-  local prev_data_path="$DATA_PATH"
-  prompt DATA_PATH "Data path" "$DATA_PATH"
-  if [ "$DATA_PATH" != "$prev_data_path" ]; then
-    DATA_PATH_SET="true"
-  fi
-  prompt APP_IMAGE "Docker image" "$APP_IMAGE"
-
-  prompt DATABASE_USER "Database user" "$DATABASE_USER"
-  prompt DATABASE_NAME "Database name" "$DATABASE_NAME"
-
-  if [ -z "$DATABASE_PASSWORD" ]; then
-    DATABASE_PASSWORD="$(generate_password)"
-  fi
-  prompt_secret DATABASE_PASSWORD "Database password" "$DATABASE_PASSWORD"
-
-  prompt_jwt_secret
-
-  prompt_file_encryption_key
-
-  prompt_yesno PUBLIC_REGISTRATION "Enable public registration?" "$PUBLIC_REGISTRATION"
-  prompt INVITE_TOKEN_TTL_HOURS "Invite token TTL (hours)" "$INVITE_TOKEN_TTL_HOURS"
-
-  prompt_yesno SMTP_ENABLED "Enable SMTP?" "$SMTP_ENABLED"
-  if [ "$SMTP_ENABLED" = "true" ]; then
-    prompt SMTP_HOST "SMTP host" "$SMTP_HOST"
-    prompt SMTP_PORT "SMTP port" "$SMTP_PORT"
-    prompt_yesno SMTP_SECURE "SMTP secure/TLS?" "$SMTP_SECURE"
-    prompt SMTP_USER "SMTP user" "$SMTP_USER"
-    prompt_secret SMTP_PASS "SMTP password" "$SMTP_PASS"
-    prompt SMTP_FROM "SMTP from" "$SMTP_FROM"
-  fi
-}
-
-validate_inputs() {
-  case "$APP_PORT" in
-    ''|*[!0-9]*)
-      echo -e "${RED}APP_PORT must be numeric (got: $APP_PORT)${NC}"
-      exit 1
-      ;;
-  esac
-
-  case "$USE_HTTPS" in
-    auto|true|false) ;;
-    *)
-      echo -e "${RED}--use-https must be auto|true|false${NC}"
-      exit 1
-      ;;
-  esac
-
-  case "$EDIT_ENV" in
-    ask|true|false) ;;
-    *)
-      echo -e "${RED}EDIT_ENV must be ask|true|false${NC}"
-      exit 1
-      ;;
-  esac
-
-}
-
-write_env() {
+# ── STEP 4: create_env ────────────────────────────────────────────────────────
+create_env() {
   local protocol
   if [ "$DOMAIN" = "localhost" ]; then
     protocol="http"
   else
     case "$USE_HTTPS" in
-      true) protocol="https" ;;
+      true)  protocol="https" ;;
       false) protocol="http" ;;
-      auto) protocol="https" ;;
+      *)     protocol="https" ;;
     esac
   fi
 
@@ -715,77 +454,23 @@ write_env() {
   fi
 
   local cookie_domain="$DOMAIN"
-  if [ "$DOMAIN" = "localhost" ]; then
-    cookie_domain="localhost"
-  fi
+  if [ "$DOMAIN" = "localhost" ]; then cookie_domain="localhost"; fi
 
-  if is_non_interactive_mode && [ "$AUTO_START" = "true" ]; then
-    :
-  else
-    if [ -z "$DATABASE_PASSWORD" ]; then
-      DATABASE_PASSWORD="$(generate_password)"
-    fi
-    if ! is_valid_jwt_secret "$JWT_SECRET"; then
-      JWT_SECRET="$(generate_base64_32)"
-      warn "Generated JWT_SECRET (missing/weak input)"
-    fi
-    if ! is_valid_base64_32 "$FILE_ENCRYPTION_MASTER_KEY"; then
-      FILE_ENCRYPTION_MASTER_KEY="$(generate_base64_32)"
-      warn "Generated FILE_ENCRYPTION_MASTER_KEY (missing/invalid input)"
-    fi
-  fi
-
-  if [ "$SMTP_ENABLED" != "true" ]; then
-    SMTP_HOST="smtp.example.com"
-    SMTP_PORT="587"
-    SMTP_SECURE="false"
-    SMTP_USER=""
-    SMTP_PASS=""
-    SMTP_FROM="zynqcloud <no-reply@${DOMAIN}>"
-  fi
-
-  if is_non_interactive_mode; then
-    local missing=()
-    if [ -z "$DATABASE_PASSWORD" ]; then
-      missing+=("DATABASE_PASSWORD")
-    fi
-    if ! is_valid_jwt_secret "$JWT_SECRET"; then
-      missing+=("JWT_SECRET (min 32 chars)")
-    fi
-    if ! is_valid_base64_32 "$FILE_ENCRYPTION_MASTER_KEY"; then
-      missing+=("FILE_ENCRYPTION_MASTER_KEY (base64 32 bytes)")
-    fi
-    if [ "$SMTP_ENABLED" = "true" ]; then
-      [ -z "$SMTP_HOST" ] && missing+=("SMTP_HOST")
-      [ -z "$SMTP_PORT" ] && missing+=("SMTP_PORT")
-      [ -z "$SMTP_USER" ] && missing+=("SMTP_USER")
-      [ -z "$SMTP_PASS" ] && missing+=("SMTP_PASS")
-      [ -z "$SMTP_FROM" ] && missing+=("SMTP_FROM")
-    fi
-
-    if [ "${#missing[@]}" -gt 0 ]; then
-      if [ ! -f "$INSTALL_DIR/.env" ] && [ -f "$INSTALL_DIR/.env.example" ]; then
-        cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
-      fi
-      echo -e "${RED}Missing/invalid required production settings:${NC}"
-      for key in "${missing[@]}"; do
-        echo "  - $key"
-      done
-      echo ""
-      echo "Edit $INSTALL_DIR/.env and re-run with --start."
-      exit 1
-    fi
-  fi
-
-  mkdir -p "$DATA_PATH"
-
+  # Existing .env handling
   if [ -f "$INSTALL_DIR/.env" ]; then
+    if [ "$FORCE_OVERWRITE" != "true" ]; then
+      warn "Existing .env found — skipping (use --force to overwrite)"
+      ok "Using existing $INSTALL_DIR/.env"
+      return
+    fi
     cp "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.bak.$(date +%s)"
     warn "Existing .env backed up"
   fi
 
+  mkdir -p "$DATA_PATH"
+
   cat > "$INSTALL_DIR/.env" <<ENVEOF
-# zynqcloud Environment (generated)
+# ZynqCloud Environment — generated by install.sh
 # $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
 ZYNQCLOUD_IMAGE=${APP_IMAGE}
@@ -803,6 +488,7 @@ JWT_EXPIRES_IN=7d
 COOKIE_DOMAIN=${cookie_domain}
 FILE_ENCRYPTION_MASTER_KEY=${FILE_ENCRYPTION_MASTER_KEY}
 
+# SMTP — disabled by default; enable and configure via Admin → Notifications
 EMAIL_ENABLED=${SMTP_ENABLED}
 SMTP_HOST=${SMTP_HOST}
 SMTP_PORT=${SMTP_PORT}
@@ -824,159 +510,175 @@ ENVEOF
   ok "Created $INSTALL_DIR/.env"
 }
 
+# ── edit .env before start ────────────────────────────────────────────────────
 edit_env_if_requested() {
-  local should_edit="$EDIT_ENV"
-  if [ "$should_edit" = "ask" ]; then
-    if [ "$NON_INTERACTIVE" = "true" ] || ! is_tty; then
-      should_edit="false"
-    else
-      prompt_yesno should_edit "Review/edit .env before starting containers?" "true"
-    fi
-  fi
-
-  if [ "$should_edit" != "true" ]; then
-    return
-  fi
+  [ "$EDIT_ENV" != "true" ] && return
 
   local editor="${EDITOR:-}"
   if [ -z "$editor" ]; then
-    if command -v nano >/dev/null 2>&1; then
-      editor="nano"
-    elif command -v vi >/dev/null 2>&1; then
-      editor="vi"
-    fi
+    command -v nano >/dev/null 2>&1 && editor="nano" || true
+    [ -z "$editor" ] && command -v vi >/dev/null 2>&1 && editor="vi" || true
   fi
 
   if [ -z "$editor" ]; then
-    warn "No editor found. Skipping interactive edit."
+    warn "No editor found. Skipping .env review."
     return
   fi
 
   "$editor" "$INSTALL_DIR/.env"
 }
 
-start_stack() {
-  cd "$INSTALL_DIR"
-  ensure_docker
-  ensure_docker_compose
-  need_cmd curl
-
-  log "Pulling images"
-  if ! docker compose --env-file .env pull; then
-    echo ""
-    warn "Image pull failed."
-    echo "Fix .env and retry:"
-    echo "  ${EDITOR:-nano} $INSTALL_DIR/.env"
-    echo "  cd $INSTALL_DIR && docker compose --env-file .env pull"
+# ── STEP 5: start_containers ─────────────────────────────────────────────────
+start_containers() {
+  log "Pulling Docker images"
+  if ! docker compose --project-directory "$INSTALL_DIR" --env-file "$INSTALL_DIR/.env" pull; then
+    err "Image pull failed."
+    echo "  Fix $INSTALL_DIR/.env and re-run:"
+    echo "    cd $INSTALL_DIR && docker compose --env-file .env pull"
     exit 1
   fi
+  ok "Images pulled"
 
   log "Starting containers"
-  if ! docker compose --env-file .env up -d; then
-    echo ""
-    warn "Container startup failed."
-    echo "Fix .env and retry:"
-    echo "  ${EDITOR:-nano} $INSTALL_DIR/.env"
-    echo "  cd $INSTALL_DIR && docker compose --env-file .env up -d"
+  if ! docker compose --project-directory "$INSTALL_DIR" --env-file "$INSTALL_DIR/.env" up -d; then
+    err "Container startup failed."
+    echo "  cd $INSTALL_DIR && docker compose --env-file .env logs"
     exit 1
   fi
+  ok "Containers started"
+}
 
-  local tries=45
-  local i=0
-  log "Checking health endpoint"
+# ── STEP 6: wait_for_db ───────────────────────────────────────────────────────
+wait_for_db() {
+  log "Waiting for database to be ready"
+  local tries=30 i=0
   while [ "$i" -lt "$tries" ]; do
-    if curl -fsS "http://localhost:${APP_PORT}/health" >/dev/null 2>&1; then
-      ok "Service healthy at http://localhost:${APP_PORT}"
-      return
+    if docker exec zynqcloud-postgres pg_isready -U "$DATABASE_USER" -d "$DATABASE_NAME" >/dev/null 2>&1; then
+      ok "Database is ready"
+      return 0
     fi
     i=$((i + 1))
     sleep 2
   done
-
-  warn "Health check timeout. Check logs:"
-  echo "  docker compose --env-file .env logs -f"
-  echo "To edit config and retry:"
-  echo "  ${EDITOR:-nano} $INSTALL_DIR/.env"
-  echo "  cd $INSTALL_DIR && docker compose --env-file .env up -d"
+  warn "Database did not become ready in time. Check logs:"
+  echo "  docker logs zynqcloud-postgres"
+  exit 1
 }
 
-should_start_containers() {
-  if [ "$TEMPLATE_ONLY" = "true" ] || [ "$AUTO_START" = "false" ]; then
-    return 1
-  fi
-
-  if [ "$AUTO_START" = "true" ]; then
-    return 0
-  fi
-
-  if is_non_interactive_mode; then
-    return 1
-  fi
-
-  local answer
-  prompt_yesno answer "Start containers now?" "true"
-  [ "$answer" = "true" ]
+# ── STEP 7: run_migrations ────────────────────────────────────────────────────
+run_migrations() {
+  log "Waiting for migrations to complete"
+  local tries=60 i=0
+  while [ "$i" -lt "$tries" ]; do
+    local status
+    status="$(docker inspect --format='{{.State.Status}}' zynqcloud-migrate 2>/dev/null || echo 'missing')"
+    if [ "$status" = "exited" ]; then
+      local exit_code
+      exit_code="$(docker inspect --format='{{.State.ExitCode}}' zynqcloud-migrate 2>/dev/null || echo '1')"
+      if [ "$exit_code" = "0" ]; then
+        ok "Migrations completed"
+        return 0
+      else
+        err "Migrations failed (exit code: $exit_code)"
+        echo "  docker logs zynqcloud-migrate"
+        exit 1
+      fi
+    fi
+    i=$((i + 1))
+    sleep 2
+  done
+  warn "Migration container did not finish in time. Check logs:"
+  echo "  docker logs zynqcloud-migrate"
+  exit 1
 }
 
+# ── STEP 8: health_check ──────────────────────────────────────────────────────
+health_check() {
+  log "Checking application health"
+  local tries=45 i=0
+  while [ "$i" -lt "$tries" ]; do
+    if curl -fsS "http://localhost:${APP_PORT}/health" >/dev/null 2>&1; then
+      ok "Application is healthy"
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 2
+  done
+  warn "Health check timed out. The app may still be starting. Check logs:"
+  echo "  docker compose --project-directory $INSTALL_DIR --env-file $INSTALL_DIR/.env logs -f"
+}
+
+# ── Banner ────────────────────────────────────────────────────────────────────
+print_banner() {
+  echo ""
+  echo -e "${BLUE}  Z Y N Q C L O U D${NC}"
+  echo -e "${DIM}  Self-hosted cloud storage${NC}"
+  echo ""
+}
+
+# ── Final summary ─────────────────────────────────────────────────────────────
 print_summary() {
-  local install_url="http://localhost:${APP_PORT}"
+  local access_url="http://localhost:${APP_PORT}"
   if [ "$DOMAIN" != "localhost" ]; then
     local proto="https"
     [ "$USE_HTTPS" = "false" ] && proto="http"
-    install_url="${proto}://${DOMAIN}"
+    access_url="${proto}://${DOMAIN}"
   fi
 
   echo ""
-  echo -e "${WHITE}Congratulations! ${APP_NAME} is ready.${NC}"
-  echo "  Stack dir : $INSTALL_DIR"
-  echo "  Compose   : $INSTALL_DIR/docker-compose.yml"
-  echo "  Env file  : $INSTALL_DIR/.env"
-  echo "  Data path : $DATA_PATH"
+  echo -e "${WHITE}--------------------------------------------------${NC}"
+  echo -e "${WHITE}  ZynqCloud Installed Successfully${NC}"
+  echo -e "${WHITE}  Access: ${access_url}${NC}"
+  echo -e "${WHITE}  Admin setup: Complete in browser${NC}"
+  echo -e "${WHITE}--------------------------------------------------${NC}"
   echo ""
-  echo -e "${CYAN}Your app is ready at:${NC}"
-  echo -e "${WHITE}${install_url}${NC}"
-  echo -e "${DIM}\"Own your files. Own your cloud.\"${NC}"
+  echo "  Install dir : $INSTALL_DIR"
+  echo "  Env file    : $INSTALL_DIR/.env"
+  echo "  Data path   : $DATA_PATH"
   echo ""
-
-  if [ "$TEMPLATE_ONLY" = "true" ]; then
-    echo "Generated deployment files:"
-    echo "  - docker-compose.yml"
-    echo "  - .env"
-    echo ""
-  fi
 }
 
+# ── Main ──────────────────────────────────────────────────────────────────────
 main() {
   print_banner
   parse_args "$@"
-  validate_inputs
 
-  if [ "$NON_INTERACTIVE" != "true" ] && is_tty; then
-    configure_interactive
+  # Validate flag values
+  case "$APP_PORT" in
+    ''|*[!0-9]*) err "APP_PORT must be numeric (got: $APP_PORT)"; exit 1 ;;
+  esac
+  case "$USE_HTTPS" in
+    auto|true|false) ;;
+    *) err "--use-https must be auto|true|false"; exit 1 ;;
+  esac
+
+  log "Installing ${APP_NAME} in $INSTALL_DIR"
+
+  check_dependencies
+
+  # --advanced: prompt before generating secrets / writing files
+  if [ "$NON_INTERACTIVE" = "false" ] && is_tty; then
+    configure_advanced
   fi
 
-  validate_inputs
-
-  echo ""
-  log "Preparing ${APP_NAME} in $INSTALL_DIR"
-
+  generate_secrets
   download_or_copy_templates
-  write_env
+  create_env
   edit_env_if_requested
 
-  if [ "$TEMPLATE_ONLY" = "true" ]; then
-    ok "Template-only mode: containers not started"
+  if [ "$INIT_ONLY" = "true" ]; then
+    ok "Init-only mode: files written, containers not started"
+    echo ""
+    echo "  Start manually:"
+    echo "    cd $INSTALL_DIR && docker compose --env-file .env up -d"
     print_summary
     exit 0
   fi
 
-  if should_start_containers; then
-    start_stack
-  else
-    warn "Containers not started."
-    echo "Next step:"
-    echo "  cd $INSTALL_DIR && docker compose --env-file .env up -d"
-  fi
+  start_containers
+  wait_for_db
+  run_migrations
+  health_check
   print_summary
 }
 

@@ -78,7 +78,7 @@ next-env.d.ts
 # ===============================
 .docker/
 docker-data/
-
+docker-compose.local.yml
 # ===============================
 # Local Storage (CRITICAL)
 # ===============================
