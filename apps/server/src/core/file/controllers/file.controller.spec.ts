@@ -335,13 +335,18 @@ describe('FileController', () => {
       const shareDto = { type: 'public' };
       const shareResult = { token: 'share-token' };
       fileService.share.mockResolvedValue(shareResult as any);
+      const req = {
+        headers: { host: '192.168.1.10:3000' },
+        protocol: 'http',
+      } as any;
 
-      controller.share(mockUser as any, 'file-123', shareDto as any);
+      controller.share(mockUser as any, 'file-123', shareDto as any, req);
 
       expect(fileService.share).toHaveBeenCalledWith(
         'file-123',
         'user-123',
         shareDto,
+        'http://192.168.1.10:3000',
       );
     });
   });

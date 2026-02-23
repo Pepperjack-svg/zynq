@@ -20,6 +20,7 @@ export class InvitationService {
     createInviteDto: CreateInviteDto,
     inviterId: string,
     inviterName: string,
+    requestOrigin?: string,
   ): Promise<
     Invitation & { link: string; email_sent: boolean; email_message?: string }
   > {
@@ -40,8 +41,11 @@ export class InvitationService {
 
     const saved = await this.invitationsRepository.save(invitation);
 
-    const frontendUrl =
-      this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+    const frontendUrl = (
+      requestOrigin ||
+      this.configService.get('FRONTEND_URL') ||
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
     const link = `${frontendUrl}/register?inviteToken=${token}`;
 
     let emailSent = false;

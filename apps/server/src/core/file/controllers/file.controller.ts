@@ -11,12 +11,13 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Req,
   Res,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { FileService } from '../file.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
@@ -26,6 +27,7 @@ import { BulkDeleteFilesDto } from '../dto/bulk-delete-files.dto';
 import { ShareFileDto } from '../../share/dto/share-file.dto';
 import { File as FileEntity } from '../entities/file.entity';
 import * as archiver from 'archiver';
+import { getRequestOrigin } from '../../../common/utils/request-origin.util';
 
 /**
  * File management endpoints: CRUD, upload, download, share, trash.
@@ -279,7 +281,13 @@ export class FileController {
     @CurrentUser() user: User,
     @Param('id') id: string,
     @Body() shareDto: ShareFileDto,
+    @Req() req: Request,
   ) {
-    return this.fileService.share(id, user.id, shareDto);
+    return this.fileService.share(
+      id,
+      user.id,
+      shareDto,
+      getRequestOrigin(req) || undefined,
+    );
   }
 }

@@ -503,6 +503,7 @@ export class FileService {
     fileId: string,
     userId: string,
     shareDto: ShareFileDto,
+    requestOrigin?: string,
   ): Promise<Share & { publicLink?: string | null }> {
     const file = await this.findById(fileId, userId);
 
@@ -524,10 +525,16 @@ export class FileService {
 
     const saved = await this.sharesRepository.save(share);
 
+    const publicBaseUrl = (
+      requestOrigin ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
+
     return {
       ...saved,
       publicLink: shareDto.isPublic
-        ? `${process.env.FRONTEND_URL || 'http://localhost:3000'}/share/${saved.share_token}`
+        ? `${publicBaseUrl}/share/${saved.share_token}`
         : null,
     };
   }
