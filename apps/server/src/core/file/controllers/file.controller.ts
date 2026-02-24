@@ -29,6 +29,7 @@ import { User } from '../../user/entities/user.entity';
 import { CreateFileDto } from '../dto/create-file.dto';
 import { BulkDeleteFilesDto } from '../dto/bulk-delete-files.dto';
 import { ShareFileDto } from '../../share/dto/share-file.dto';
+import { UpdatePublicShareDto } from '../../share/dto/update-public-share.dto';
 import { File as FileEntity } from '../entities/file.entity';
 import * as archiver from 'archiver';
 import { getRequestOrigin } from '../../../common/utils/request-origin.util';
@@ -136,6 +137,23 @@ export class FileController {
   ) {
     await this.fileService.revokeShare(shareId, user.id);
     return { success: true };
+  }
+
+  @Patch('shares/:shareId/public-settings')
+  @HttpCode(HttpStatus.OK)
+  async updatePublicShareSettings(
+    @CurrentUser() user: User,
+    @Param('shareId') shareId: string,
+    @Body() updateDto: UpdatePublicShareDto,
+    @Req() req: Request,
+  ) {
+    const requestOrigin = getRequestOrigin(req);
+    return this.fileService.updatePublicShareSettings(
+      shareId,
+      user.id,
+      updateDto,
+      requestOrigin ?? undefined,
+    );
   }
 
   @Delete('bulk')

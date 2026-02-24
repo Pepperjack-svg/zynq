@@ -13,6 +13,7 @@ import { StorageService } from '../storage/storage.service';
 import { UserService } from '../user/user.service';
 import { CreateFileDto, BLOCKED_EXTENSIONS_REGEX } from './dto/create-file.dto';
 import { ShareFileDto } from '../share/dto/share-file.dto';
+import { UpdatePublicShareDto } from '../share/dto/update-public-share.dto';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
 
@@ -535,6 +536,43 @@ export class FileService {
       throw new BadRequestException('Cannot share with yourself');
     }
 
+    const publicBaseUrl = (
+      requestOrigin ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
+
+    if (shareDto.isPublic) {
+      const existingPublicShare = await this.sharesRepository.findOne({
+        where: {
+          file_id: file.id,
+          created_by: userId,
+          is_public: true,
+        },
+      });
+
+      if (existingPublicShare) {
+        if (shareDto.password) {
+          existingPublicShare.password = await bcrypt.hash(
+            shareDto.password,
+            12,
+          );
+        }
+        if (shareDto.expiresAt) {
+          existingPublicShare.expires_at = new Date(shareDto.expiresAt);
+        }
+        if (!existingPublicShare.share_token) {
+          existingPublicShare.share_token = randomBytes(16).toString('hex');
+        }
+        await this.sharesRepository.save(existingPublicShare);
+
+        return {
+          ...existingPublicShare,
+          publicLink: `${publicBaseUrl}/share/${existingPublicShare.share_token}`,
+        };
+      }
+    }
+
     const share = this.sharesRepository.create({
       file_id: file.id,
       grantee_user_id: shareDto.toUserId,
@@ -553,12 +591,6 @@ export class FileService {
     });
 
     const saved = await this.sharesRepository.save(share);
-
-    const publicBaseUrl = (
-      requestOrigin ||
-      process.env.FRONTEND_URL ||
-      'http://localhost:3000'
-    ).replace(/\/+$/, '');
 
     return {
       ...saved,
@@ -756,6 +788,49 @@ export class FileService {
       where: { created_by: userId, is_public: false },
       relations: ['file', 'grantee_user'],
     });
+  }
+
+  async updatePublicShareSettings(
+    shareId: string,
+    userId: string,
+    updateDto: UpdatePublicShareDto,
+    requestOrigin?: string,
+  ): Promise<Share & { publicLink: string }> {
+    const share = await this.sharesRepository.findOne({
+      where: { id: shareId, created_by: userId, is_public: true },
+    });
+
+    if (!share) {
+      throw new NotFoundException('Public share not found');
+    }
+
+    if (updateDto.clearPassword) {
+      share.password = undefined;
+    } else if (updateDto.password) {
+      share.password = await bcrypt.hash(updateDto.password, 12);
+    }
+
+    if (updateDto.clearExpiry) {
+      share.expires_at = undefined;
+    } else if (updateDto.expiresAt) {
+      share.expires_at = new Date(updateDto.expiresAt);
+    }
+
+    if (!share.share_token) {
+      share.share_token = randomBytes(16).toString('hex');
+    }
+
+    const saved = await this.sharesRepository.save(share);
+    const publicBaseUrl = (
+      requestOrigin ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
+
+    return {
+      ...saved,
+      publicLink: `${publicBaseUrl}/share/${saved.share_token}`,
+    };
   }
 
   async revokeShare(shareId: string, userId: string): Promise<void> {

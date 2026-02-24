@@ -4,8 +4,43 @@
  * @module api
  */
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+function trimTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+export function getApiBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  const defaultBase = 'http://localhost:4000/api/v1';
+
+  if (typeof window === 'undefined') {
+    return trimTrailingSlash(configured || defaultBase);
+  }
+
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      const configuredIsLocal =
+        url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+      const currentIsLocal =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1';
+
+      // If UI is opened via LAN/domain but env still points to localhost,
+      // rewrite host dynamically so browser calls the actual server host.
+      if (configuredIsLocal && !currentIsLocal) {
+        url.hostname = window.location.hostname;
+        url.protocol = window.location.protocol;
+        return trimTrailingSlash(url.toString());
+      }
+
+      return trimTrailingSlash(configured);
+    } catch {
+      return trimTrailingSlash(configured);
+    }
+  }
+
+  return `${window.location.protocol}//${window.location.hostname}:4000/api/v1`;
+}
 
 /**
  * Custom error class for API errors with status code and details.
@@ -77,6 +112,8 @@ export interface Share {
   is_public?: boolean;
   share_token?: string | null;
   publicLink?: string | null;
+  expires_at?: string | null;
+  password?: string | null;
 }
 
 export interface Invitation {
@@ -140,6 +177,57 @@ function getErrorMessage(value: unknown, fallback: string): string {
   return getStringField(value, 'message') ?? fallback;
 }
 
+function isLikelyHtml(text: string): boolean {
+  const trimmed = text.trim().toLowerCase();
+  return (
+    trimmed.startsWith('<!doctype html') ||
+    trimmed.startsWith('<html') ||
+    trimmed.includes('<head>') ||
+    trimmed.includes('<body>')
+  );
+}
+
+function getHttpStatusFallbackMessage(status: number): string {
+  if (status === 502 || status === 503 || status === 504) {
+    return 'Server is temporarily unavailable. Please try again in a few seconds.';
+  }
+  if (status >= 500) {
+    return 'Server error. Please try again shortly.';
+  }
+  if (status === 429) {
+    return 'Too many requests. Please wait and try again.';
+  }
+  return 'An error occurred';
+}
+
+async function toApiError(response: Response): Promise<ApiError> {
+  const fallback = getHttpStatusFallbackMessage(response.status);
+  const contentType = (
+    response.headers.get('content-type') || ''
+  ).toLowerCase();
+  const text = await response.text();
+
+  let errorData: unknown = {};
+  if (contentType.includes('application/json')) {
+    try {
+      errorData = JSON.parse(text) as unknown;
+    } catch {
+      errorData = { message: fallback };
+    }
+  } else if (text && !isLikelyHtml(text)) {
+    errorData = { message: text.trim().slice(0, 300) };
+  } else {
+    errorData = { message: fallback };
+  }
+
+  return new ApiError(
+    getErrorMessage(errorData, fallback),
+    response.status,
+    getStringField(errorData, 'errorCode'),
+    errorData,
+  );
+}
+
 function toNumber(value: unknown, fallback = 0): number {
   const num =
     typeof value === 'number'
@@ -178,31 +266,24 @@ async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    credentials: 'include',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      credentials: 'include',
+    });
+  } catch {
+    throw new ApiError('Unable to connect to the server.', 0, 'NETWORK_ERROR', {
+      message: 'Network request failed',
+    });
+  }
 
   if (!response.ok) {
-    const text = await response.text();
-    let errorData: unknown = {};
-
-    try {
-      errorData = JSON.parse(text) as unknown;
-    } catch {
-      errorData = { message: text };
-    }
-
-    throw new ApiError(
-      getErrorMessage(errorData, 'An error occurred'),
-      response.status,
-      getStringField(errorData, 'errorCode'),
-      errorData,
-    );
+    throw await toApiError(response);
   }
 
   if (
@@ -309,26 +390,14 @@ export const fileApi = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${API_BASE_URL}/files/${fileId}/upload`, {
+    const response = await fetch(`${getApiBaseUrl()}/files/${fileId}/upload`, {
       method: 'PUT',
       body: formData,
       credentials: 'include',
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      let errorData: unknown = {};
-      try {
-        errorData = JSON.parse(text) as unknown;
-      } catch {
-        errorData = { message: text };
-      }
-      throw new ApiError(
-        getErrorMessage(errorData, 'Upload failed'),
-        response.status,
-        getStringField(errorData, 'errorCode'),
-        errorData,
-      );
+      throw await toApiError(response);
     }
 
     return response.json();
@@ -383,17 +452,33 @@ export const fileApi = {
     fetchApi<{ success: boolean }>(`/files/shares/${shareId}`, {
       method: 'DELETE',
     }),
+  updatePublicShare: (
+    shareId: string,
+    data: {
+      expiresAt?: string;
+      password?: string;
+      clearPassword?: boolean;
+      clearExpiry?: boolean;
+    },
+  ) =>
+    fetchApi<Share & { publicLink: string }>(
+      `/files/shares/${shareId}/public-settings`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      },
+    ),
 
   downloadShared: async (shareId: string) => {
     const response = await fetch(
-      `${API_BASE_URL}/files/shares/${shareId}/download`,
+      `${getApiBaseUrl()}/files/shares/${shareId}/download`,
       {
         credentials: 'include',
       },
     );
 
     if (!response.ok) {
-      throw new ApiError('Download failed', response.status);
+      throw await toApiError(response);
     }
 
     const blob = await response.blob();
@@ -421,12 +506,12 @@ export const fileApi = {
     }),
 
   download: async (id: string) => {
-    const response = await fetch(`${API_BASE_URL}/files/${id}/download`, {
+    const response = await fetch(`${getApiBaseUrl()}/files/${id}/download`, {
       credentials: 'include',
     });
 
     if (!response.ok) {
-      throw new ApiError('Download failed', response.status);
+      throw await toApiError(response);
     }
 
     const blob = await response.blob();
@@ -587,7 +672,10 @@ export const storageApi = {
 
 /** Public API: anonymous access to shared files */
 export const publicApi = {
-  getShare: async (token: string) => {
+  getShare: async (token: string, password?: string) => {
+    const headers = password
+      ? ({ 'x-share-password': password } as HeadersInit)
+      : undefined;
     const data = await fetchApi<{
       id: string;
       name: string;
@@ -598,20 +686,24 @@ export const publicApi = {
       createdAt: string;
       isFolder: boolean;
       hasContent: boolean;
-    }>(`/public/share/${token}`);
+    }>(`/public/share/${token}`, { headers });
     return {
       ...data,
       size: toNumber(data.size, 0),
     };
   },
 
-  downloadShare: async (token: string) => {
+  downloadShare: async (token: string, password?: string) => {
+    const headers = password
+      ? ({ 'x-share-password': password } as HeadersInit)
+      : undefined;
     const response = await fetch(
-      `${API_BASE_URL}/public/share/${token}/download`,
+      `${getApiBaseUrl()}/public/share/${token}/download`,
+      { headers },
     );
 
     if (!response.ok) {
-      throw new ApiError('Download failed', response.status);
+      throw await toApiError(response);
     }
 
     const blob = await response.blob();

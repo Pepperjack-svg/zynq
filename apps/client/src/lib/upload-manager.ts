@@ -213,8 +213,7 @@ class UploadManager {
     file: File,
     onProgress: (percent: number) => void,
   ): Promise<void> {
-    const apiBase =
-      process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+    const apiBase = getApiBaseUrl();
     const fullUrl = url.startsWith('http')
       ? url
       : `${apiBase}${url.replace(/^\/api\/v1/, '')}`;
@@ -246,6 +245,7 @@ class UploadManager {
       formData.append('file', file);
 
       xhr.open('PUT', fullUrl);
+      xhr.withCredentials = true;
       xhr.send(formData);
     });
   }
@@ -289,3 +289,4 @@ class UploadManager {
 
 // Singleton instance
 export const uploadManager = new UploadManager();
+import { getApiBaseUrl } from './api';

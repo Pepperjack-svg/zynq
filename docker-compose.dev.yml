@@ -48,12 +48,14 @@ services:
       EMAIL_ENABLED: 'false'
       CORS_ORIGIN: http://localhost:3000
       FRONTEND_URL: http://localhost:3000
+      RATE_LIMIT_TTL: ${RATE_LIMIT_TTL:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
     ports:
       - '4000:4000'
     volumes:
       - .:/workspace
-      - workspace_node_modules:/workspace/node_modules
-      - pnpm_store:/workspace/.pnpm-store
+      - backend_node_modules:/workspace/node_modules
+      - backend_pnpm_store:/workspace/.pnpm-store
       - zynq_dev_files:/data/files
     networks:
       - zynqcloud-dev
@@ -72,17 +74,21 @@ services:
       - '3000:3000'
     volumes:
       - .:/workspace
-      - workspace_node_modules:/workspace/node_modules
-      - pnpm_store:/workspace/.pnpm-store
+      - frontend_node_modules:/workspace/node_modules
+      - frontend_pnpm_store:/workspace/.pnpm-store
     networks:
       - zynqcloud-dev
 
 volumes:
   postgres_dev_data:
     driver: local
-  workspace_node_modules:
+  backend_node_modules:
     driver: local
-  pnpm_store:
+  frontend_node_modules:
+    driver: local
+  backend_pnpm_store:
+    driver: local
+  frontend_pnpm_store:
     driver: local
   zynq_dev_files:
     driver: local

@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Loader2, Download, X } from 'lucide-react';
-import { type FileMetadata, fileApi } from '@/lib/api';
+import { ApiError, type FileMetadata, fileApi } from '@/lib/api';
 import { getFileIcon, getIconColor } from '@/features/file/utils/file-icons';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -112,8 +112,12 @@ export function FilePreviewDialog({ file, onClose }: FilePreviewDialogProps) {
           createdUrl = URL.createObjectURL(blob);
           if (!stale) setBlobUrl(createdUrl);
         }
-      } catch {
-        if (!stale) setError('Failed to load preview.');
+      } catch (err) {
+        if (!stale) {
+          setError(
+            err instanceof ApiError ? err.message : 'Failed to load preview.',
+          );
+        }
       } finally {
         if (!stale) setLoading(false);
       }
@@ -146,7 +150,10 @@ export function FilePreviewDialog({ file, onClose }: FilePreviewDialogProps) {
       console.error('Download failed:', err);
       toast({
         title: 'Download failed',
-        description: 'Unable to download this file.',
+        description:
+          err instanceof ApiError
+            ? err.message
+            : 'Unable to download this file.',
         variant: 'destructive',
       });
     }
