@@ -108,8 +108,16 @@ export function PublicSharePreviewDialog({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch {
-      setError('Download failed.');
+    } catch (err) {
+      console.error('Download failed:', err);
+      toast({
+        title: 'Download failed',
+        description:
+          err instanceof ApiError
+            ? err.message
+            : 'Unable to download this file.',
+        variant: 'destructive',
+      });
     }
   };
 
