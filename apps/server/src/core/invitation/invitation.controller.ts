@@ -4,11 +4,13 @@ import {
   Post,
   Body,
   Param,
+  Req,
   UseGuards,
   HttpCode,
   HttpStatus,
   ForbiddenException,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { InvitationService } from './invitation.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -18,6 +20,7 @@ import { User, UserRole } from '../user/entities/user.entity';
 import { CreateInviteDto } from './dto/create-invite.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
 import { UserService } from '../user/user.service';
+import { getRequestOrigin } from '../../common/utils/request-origin.util';
 
 @Controller('invites')
 export class InvitationController {
@@ -29,7 +32,11 @@ export class InvitationController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.OWNER)
-  create(@CurrentUser() user: User, @Body() createInviteDto: CreateInviteDto) {
+  create(
+    @CurrentUser() user: User,
+    @Body() createInviteDto: CreateInviteDto,
+    @Req() req: Request,
+  ) {
     // Role hierarchy: OWNER > ADMIN > USER
     // Users can only invite roles equal to or lower than their own
     const roleHierarchy = {
@@ -63,7 +70,12 @@ export class InvitationController {
       throw new ForbiddenException('Only owners can invite other owners');
     }
 
-    return this.invitationService.create(createInviteDto, user.id, user.name);
+    return this.invitationService.create(
+      createInviteDto,
+      user.id,
+      user.name,
+      getRequestOrigin(req) || undefined,
+    );
   }
 
   @Get()
