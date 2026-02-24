@@ -114,7 +114,6 @@ export function Sidebar({ user }: SidebarProps) {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      localStorage.removeItem('token');
       router.push('/login');
     }
   };

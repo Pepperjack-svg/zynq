@@ -560,7 +560,6 @@ export default function FilesPage() {
     const fullUrl = url.startsWith('http')
       ? url
       : `${apiBase}${url.replace(/^\/api\/v1/, '')}`;
-    const token = localStorage.getItem('token');
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -591,9 +590,6 @@ export default function FilesPage() {
       formData.append('file', file);
 
       xhr.open('PUT', fullUrl);
-      if (token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      }
       xhr.send(formData);
     });
   };

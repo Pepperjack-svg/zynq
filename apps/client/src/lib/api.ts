@@ -37,7 +37,6 @@ export interface User {
   storage_used?: number;
   storage_limit?: number;
   created_at?: string;
-  token?: string;
 }
 
 export interface ShareableUser {
@@ -175,22 +174,14 @@ function getFileNameFromDisposition(
   return fallback;
 }
 
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('token');
-}
-
 async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token = getAuthToken();
-
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
     credentials: 'include',
@@ -315,15 +306,11 @@ export const fileApi = {
     }),
 
   upload: async (fileId: string, file: File): Promise<FileMetadata> => {
-    const token = getAuthToken();
     const formData = new FormData();
     formData.append('file', file);
 
     const response = await fetch(`${API_BASE_URL}/files/${fileId}/upload`, {
       method: 'PUT',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
       body: formData,
       credentials: 'include',
     });
@@ -380,6 +367,8 @@ export const fileApi = {
       email?: string;
       permission: 'read' | 'write';
       isPublic?: boolean;
+      expiresAt?: string;
+      password?: string;
     },
   ) =>
     fetchApi<Share>(`/files/${id}/share`, {
@@ -396,13 +385,9 @@ export const fileApi = {
     }),
 
   downloadShared: async (shareId: string) => {
-    const token = getAuthToken();
     const response = await fetch(
       `${API_BASE_URL}/files/shares/${shareId}/download`,
       {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
         credentials: 'include',
       },
     );
@@ -436,11 +421,7 @@ export const fileApi = {
     }),
 
   download: async (id: string) => {
-    const token = getAuthToken();
     const response = await fetch(`${API_BASE_URL}/files/${id}/download`, {
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
       credentials: 'include',
     });
 

@@ -7,7 +7,14 @@ export interface UploadTask {
   id: string;
   file: File;
   parentId?: string;
-  status: 'pending' | 'hashing' | 'checking' | 'uploading' | 'completed' | 'error' | 'duplicate';
+  status:
+    | 'pending'
+    | 'hashing'
+    | 'checking'
+    | 'uploading'
+    | 'completed'
+    | 'error'
+    | 'duplicate';
   progress: number;
   hash?: string;
   error?: string;
@@ -23,12 +30,38 @@ export interface UploadProgress {
 type ProgressCallback = (updates: UploadProgress[]) => void;
 
 // Text-based file extensions for content normalization
-const TEXT_EXTENSIONS = new Set(['txt', 'json', 'xml', 'csv', 'html', 'htm', 'md', 'css', 'js', 'ts']);
+const TEXT_EXTENSIONS = new Set([
+  'txt',
+  'json',
+  'xml',
+  'csv',
+  'html',
+  'htm',
+  'md',
+  'css',
+  'js',
+  'ts',
+]);
 
 // Extensions that support duplicate detection
 const DEDUP_EXTENSIONS = new Set([
-  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv',
-  'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'txt',
+  'md',
+  'csv',
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'svg',
+  'bmp',
 ]);
 
 class UploadManager {
@@ -99,7 +132,9 @@ class UploadManager {
 
   private queueProgressUpdate(update: UploadProgress) {
     // Find and update existing entry or add new
-    const existingIndex = this.pendingUpdates.findIndex(u => u.id === update.id);
+    const existingIndex = this.pendingUpdates.findIndex(
+      (u) => u.id === update.id,
+    );
     if (existingIndex >= 0) {
       this.pendingUpdates[existingIndex] = update;
     } else {
@@ -153,7 +188,7 @@ class UploadManager {
       const data = encoder.encode(normalized);
       const hashBuffer = await crypto.subtle.digest('SHA-256', data);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
     }
 
     // Binary file hashing
@@ -161,24 +196,28 @@ class UploadManager {
       return new Promise((resolve, reject) => {
         this.pendingHashes.set(id, resolve);
         this.hashRejects.set(id, reject);
-        this.worker!.postMessage({ id, type: 'file', data: arrayBuffer }, [arrayBuffer]);
+        this.worker!.postMessage({ id, type: 'file', data: arrayBuffer }, [
+          arrayBuffer,
+        ]);
       });
     }
 
     // Fallback: calculate on main thread
     const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   }
 
   async uploadWithXHR(
     url: string,
     file: File,
-    token: string | null,
-    onProgress: (percent: number) => void
+    onProgress: (percent: number) => void,
   ): Promise<void> {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
-    const fullUrl = url.startsWith('http') ? url : `${apiBase}${url.replace(/^\/api\/v1/, '')}`;
+    const apiBase =
+      process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+    const fullUrl = url.startsWith('http')
+      ? url
+      : `${apiBase}${url.replace(/^\/api\/v1/, '')}`;
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -207,9 +246,6 @@ class UploadManager {
       formData.append('file', file);
 
       xhr.open('PUT', fullUrl);
-      if (token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      }
       xhr.send(formData);
     });
   }
@@ -220,7 +256,7 @@ class UploadManager {
   async processFilesParallel<T>(
     items: T[],
     processor: (item: T) => Promise<void>,
-    concurrency: number = this.concurrentUploads
+    concurrency: number = this.concurrentUploads,
   ): Promise<void> {
     const queue = [...items];
     const active: Promise<void>[] = [];
