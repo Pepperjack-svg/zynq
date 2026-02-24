@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Res } from '@nestjs/common';
+import { Controller, Get, Headers, Param, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { FileService } from '../../file/file.service';
 
@@ -7,16 +8,25 @@ export class PublicShareController {
   constructor(private fileService: FileService) {}
 
   @Get('share/:token')
-  async getPublicShare(@Param('token') token: string) {
-    return this.fileService.getPublicShare(token);
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  async getPublicShare(
+    @Param('token') token: string,
+    @Headers('x-share-password') password?: string,
+  ) {
+    return this.fileService.getPublicShare(token, password);
   }
 
   @Get('share/:token/download')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   async downloadPublicFile(
     @Param('token') token: string,
+    @Headers('x-share-password') password: string | undefined,
     @Res() res: Response,
   ) {
-    const { data, file } = await this.fileService.downloadPublicFile(token);
+    const { data, file } = await this.fileService.downloadPublicFile(
+      token,
+      password,
+    );
 
     res.set({
       'Content-Type': file.mime_type || 'application/octet-stream',
