@@ -166,9 +166,19 @@ function validatePublicShareInputs(
   let expiresAtError = '';
   if (expiresAt) {
     const expiryDate = new Date(expiresAt);
+    const now = new Date();
+    const nowMinutePrecision = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      now.getHours(),
+      now.getMinutes(),
+      0,
+      0,
+    ).getTime();
     if (Number.isNaN(expiryDate.getTime())) {
       expiresAtError = 'Please enter a valid expiry date and time.';
-    } else if (expiryDate.getTime() < Date.now()) {
+    } else if (expiryDate.getTime() < nowMinutePrecision) {
       expiresAtError = 'Expiry must be in the future.';
     }
   }

@@ -222,7 +222,7 @@ export function PublicShareView({ token }: PublicShareViewProps) {
             <Button
               size="lg"
               className="w-full"
-              disabled={downloading}
+              disabled={downloading || !file?.hasContent}
               onClick={handleDownload}
             >
               {downloading ? (

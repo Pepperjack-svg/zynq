@@ -1,12 +1,18 @@
-import { Injectable, NestMiddleware, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NestMiddleware,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
 
 @Injectable()
 export class CsrfProtectionMiddleware implements NestMiddleware {
-  constructor(private readonly configService: ConfigService) {}
+  private readonly logger = new Logger(CsrfProtectionMiddleware.name);
+  private readonly allowedOrigins: Set<string>;
 
-  private getAllowedOrigins(): Set<string> {
+  constructor(private readonly configService: ConfigService) {
     const configured = (
       this.configService.get<string>('CORS_ORIGIN') ||
       this.configService.get<string>('FRONTEND_URL') ||
@@ -15,7 +21,12 @@ export class CsrfProtectionMiddleware implements NestMiddleware {
       .split(',')
       .map((origin) => origin.trim())
       .filter(Boolean);
-    return new Set(configured);
+    this.allowedOrigins = new Set(configured);
+    if (this.allowedOrigins.size === 0) {
+      this.logger.warn(
+        'No allowed CSRF origins configured (CORS_ORIGIN/FRONTEND_URL). Authenticated state-changing requests may be rejected.',
+      );
+    }
   }
 
   private getRequestOrigin(req: Request): string | null {
@@ -49,9 +60,11 @@ export class CsrfProtectionMiddleware implements NestMiddleware {
       return;
     }
 
-    const allowedOrigins = this.getAllowedOrigins();
     const requestOrigin = this.getRequestOrigin(req);
-    if (!requestOrigin || !allowedOrigins.has(requestOrigin)) {
+    if (!requestOrigin || !this.allowedOrigins.has(requestOrigin)) {
+      this.logger.warn(
+        `Blocked CSRF request: ${method} ${req.originalUrl || req.url} origin=${requestOrigin || 'missing'}`,
+      );
       throw new ForbiddenException('CSRF validation failed');
     }
 

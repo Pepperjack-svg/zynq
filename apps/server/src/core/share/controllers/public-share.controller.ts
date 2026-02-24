@@ -17,10 +17,11 @@ import { FileService } from '../../file/file.service';
 export class PublicShareController {
   private static readonly PASSWORD_WINDOW_MS = 60_000;
   private static readonly PASSWORD_WINDOW_MAX_ATTEMPTS = 10;
+  private static readonly FAILED_ATTEMPT_TTL_MS = 15 * 60_000;
 
   private failedPasswordAttempts = new Map<
     string,
-    { attempts: number; blockedUntil?: number }
+    { attempts: number; blockedUntil?: number; lastFailedAt: number }
   >();
   private passwordAttemptWindows = new Map<
     string,
@@ -31,8 +32,13 @@ export class PublicShareController {
 
   private cleanupAttemptState(key: string, now = Date.now()) {
     const failed = this.failedPasswordAttempts.get(key);
-    if (failed?.blockedUntil && failed.blockedUntil <= now) {
-      this.failedPasswordAttempts.set(key, { attempts: failed.attempts });
+    if (
+      failed &&
+      now - failed.lastFailedAt > PublicShareController.FAILED_ATTEMPT_TTL_MS
+    ) {
+      this.failedPasswordAttempts.delete(key);
+    } else if (failed?.blockedUntil && failed.blockedUntil <= now) {
+      this.failedPasswordAttempts.delete(key);
     }
 
     const windowState = this.passwordAttemptWindows.get(key);
@@ -97,7 +103,11 @@ export class PublicShareController {
     const backoffSeconds = Math.min(300, 2 ** attempts);
     const blockedUntil = now + backoffSeconds * 1000;
 
-    this.failedPasswordAttempts.set(key, { attempts, blockedUntil });
+    this.failedPasswordAttempts.set(key, {
+      attempts,
+      blockedUntil,
+      lastFailedAt: now,
+    });
 
     if (attempts >= 3) {
       throw new HttpException(

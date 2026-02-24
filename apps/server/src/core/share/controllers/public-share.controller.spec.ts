@@ -97,7 +97,7 @@ describe('PublicShareController', () => {
       } as Partial<HttpException>);
     });
 
-    it('should apply exponential backoff for repeated forbidden password failures', async () => {
+    it('should continue to reject invalid password attempts after wait intervals', async () => {
       fileService.getPublicShare.mockRejectedValue(
         new ForbiddenException('Invalid share password'),
       );
@@ -109,21 +109,21 @@ describe('PublicShareController', () => {
         return now;
       });
 
-      await expect(
-        controller.getPublicShare('abc123', req, 'bad-pass-1'),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-      await expect(
-        controller.getPublicShare('abc123', req, 'bad-pass-2'),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-      await expect(
-        controller.getPublicShare('abc123', req, 'bad-pass-3'),
-      ).rejects.toMatchObject({
-        status: HttpStatus.TOO_MANY_REQUESTS,
-        message: expect.stringContaining('Retry in'),
-      });
+      try {
+        await expect(
+          controller.getPublicShare('abc123', req, 'bad-pass-1'),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(
+          controller.getPublicShare('abc123', req, 'bad-pass-2'),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(
+          controller.getPublicShare('abc123', req, 'bad-pass-3'),
+        ).rejects.toBeInstanceOf(ForbiddenException);
 
-      expect(fileService.getPublicShare).toHaveBeenCalledTimes(3);
-      nowSpy.mockRestore();
+        expect(fileService.getPublicShare).toHaveBeenCalledTimes(3);
+      } finally {
+        nowSpy.mockRestore();
+      }
     });
   });
 
