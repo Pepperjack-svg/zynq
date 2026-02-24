@@ -9,6 +9,11 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
+  const trustProxy = configService.get('TRUST_PROXY') === 'true';
+
+  if (trustProxy) {
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  }
 
   // Global prefix
   app.setGlobalPrefix('api/v1');
@@ -16,9 +21,33 @@ async function bootstrap() {
   // Cookie parser
   app.use(cookieParser());
 
-  // CORS — allow all origins (self-hosted; no domain restrictions)
+  const corsOriginsFromEnv = (
+    configService.get<string>('CORS_ORIGIN') ||
+    configService.get<string>('FRONTEND_URL') ||
+    ''
+  )
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  const allowedOrigins = new Set(corsOriginsFromEnv);
+
+  // CORS — only allow configured origins when credentials are enabled
   app.enableCors({
-    origin: true,
+    origin: (origin, callback) => {
+      // Non-browser requests (curl, health checks)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
+    },
     credentials: true,
   });
 

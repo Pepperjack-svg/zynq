@@ -424,6 +424,7 @@ describe('FileService', () => {
   describe('share', () => {
     it('should create a public share with token', async () => {
       filesRepository.findOne.mockResolvedValue(mockFile as File);
+      sharesRepository.findOne.mockResolvedValue(null);
       const mockShare = {
         id: 'share-123',
         file_id: 'file-123',
@@ -440,6 +441,27 @@ describe('FileService', () => {
 
       expect(result.is_public).toBe(true);
       expect(result.publicLink).toContain('/share/');
+    });
+
+    it('should reuse existing public share instead of creating a new one', async () => {
+      filesRepository.findOne.mockResolvedValue(mockFile as File);
+      const existingPublicShare = {
+        id: 'share-existing',
+        file_id: 'file-123',
+        created_by: 'user-123',
+        is_public: true,
+        share_token: 'existing-token',
+      };
+      sharesRepository.findOne.mockResolvedValue(existingPublicShare as any);
+
+      const result = await service.share('file-123', 'user-123', {
+        permission: SharePermission.READ,
+        isPublic: true,
+      });
+
+      expect(sharesRepository.create).not.toHaveBeenCalled();
+      expect(result.id).toBe('share-existing');
+      expect(result.publicLink).toContain('/share/existing-token');
     });
   });
 

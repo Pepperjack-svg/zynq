@@ -13,11 +13,15 @@ import {
   HttpStatus,
   Req,
   Res,
+  UseFilters,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
+import { promises as fs } from 'fs';
+import { tmpdir } from 'os';
 import { FileService } from '../file.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
@@ -25,9 +29,14 @@ import { User } from '../../user/entities/user.entity';
 import { CreateFileDto } from '../dto/create-file.dto';
 import { BulkDeleteFilesDto } from '../dto/bulk-delete-files.dto';
 import { ShareFileDto } from '../../share/dto/share-file.dto';
+import { UpdatePublicShareDto } from '../../share/dto/update-public-share.dto';
 import { File as FileEntity } from '../entities/file.entity';
 import * as archiver from 'archiver';
 import { getRequestOrigin } from '../../../common/utils/request-origin.util';
+import { MulterExceptionFilter } from '../../../common/filters/multer-exception.filter';
+import { diskStorage } from 'multer';
+
+const MAX_UPLOAD_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB hard limit per upload request
 
 /**
  * File management endpoints: CRUD, upload, download, share, trash.
@@ -130,6 +139,23 @@ export class FileController {
     return { success: true };
   }
 
+  @Patch('shares/:shareId/public-settings')
+  @HttpCode(HttpStatus.OK)
+  async updatePublicShareSettings(
+    @CurrentUser() user: User,
+    @Param('shareId') shareId: string,
+    @Body() updateDto: UpdatePublicShareDto,
+    @Req() req: Request,
+  ) {
+    const requestOrigin = getRequestOrigin(req);
+    return this.fileService.updatePublicShareSettings(
+      shareId,
+      user.id,
+      updateDto,
+      requestOrigin ?? undefined,
+    );
+  }
+
   @Delete('bulk')
   @HttpCode(HttpStatus.OK)
   async bulkDelete(@CurrentUser() user: User, @Body() dto: BulkDeleteFilesDto) {
@@ -167,7 +193,16 @@ export class FileController {
   }
 
   @Put(':id/upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @UseFilters(MulterExceptionFilter)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: tmpdir(),
+      }),
+      limits: { fileSize: MAX_UPLOAD_SIZE_BYTES, files: 1 },
+    }),
+  )
   async uploadFileContent(
     @CurrentUser() user: User,
     @Param('id') id: string,
@@ -176,7 +211,16 @@ export class FileController {
     if (!file) {
       return { error: 'No file provided' };
     }
-    return this.fileService.uploadFileContent(id, user.id, file.buffer);
+    if (!file.path) {
+      return { error: 'Uploaded file path not found' };
+    }
+
+    try {
+      const data = await fs.readFile(file.path);
+      return this.fileService.uploadFileContent(id, user.id, data);
+    } finally {
+      await fs.unlink(file.path).catch(() => undefined);
+    }
   }
 
   @Get(':id/download')

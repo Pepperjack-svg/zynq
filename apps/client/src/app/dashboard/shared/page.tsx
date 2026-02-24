@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Share2,
   Loader2,
@@ -35,6 +38,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function SharedPage() {
   const [sharedWithMe, setSharedWithMe] = useState<Share[]>([]);
@@ -45,6 +56,12 @@ export default function SharedPage() {
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   const [selectedShareId, setSelectedShareId] = useState<string | null>(null);
   const [revokeType, setRevokeType] = useState<'public' | 'private'>('public');
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingShare, setEditingShare] = useState<Share | null>(null);
+  const [editPassword, setEditPassword] = useState('');
+  const [editExpiresAt, setEditExpiresAt] = useState('');
+  const [clearPassword, setClearPassword] = useState(false);
+  const [clearExpiry, setClearExpiry] = useState(false);
 
   const loadShares = useCallback(async () => {
     try {
@@ -143,6 +160,80 @@ export default function SharedPage() {
     }
   };
 
+  const formatExpiryLabel = (expiresAt?: string | null) => {
+    if (!expiresAt) return null;
+    const expires = new Date(expiresAt);
+    const diffMs = expires.getTime() - Date.now();
+    if (diffMs <= 0) return 'expired';
+    const totalMinutes = Math.ceil(diffMs / 60000);
+    if (totalMinutes < 60) return `expires in ${totalMinutes}m`;
+    const totalHours = Math.ceil(totalMinutes / 60);
+    if (totalHours < 24) return `expires in ${totalHours}h`;
+    const totalDays = Math.ceil(totalHours / 24);
+    return `expires in ${totalDays}d`;
+  };
+
+  const toDatetimeLocalValue = (iso?: string | null) => {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+
+  const handleEditPublicShare = (share: Share) => {
+    setEditingShare(share);
+    setEditPassword('');
+    setClearPassword(false);
+    setClearExpiry(false);
+    setEditExpiresAt(toDatetimeLocalValue(share.expires_at));
+    setEditDialogOpen(true);
+  };
+
+  const handleSavePublicShare = async () => {
+    if (!editingShare) return;
+    try {
+      const updatePayload: {
+        expiresAt?: string;
+        password?: string;
+        clearPassword?: boolean;
+        clearExpiry?: boolean;
+      } = {};
+
+      if (clearPassword) {
+        updatePayload.clearPassword = true;
+      } else if (editPassword.trim()) {
+        updatePayload.password = editPassword.trim();
+      }
+
+      if (clearExpiry) {
+        updatePayload.clearExpiry = true;
+      } else if (editExpiresAt) {
+        updatePayload.expiresAt = new Date(editExpiresAt).toISOString();
+      }
+
+      const updated = await fileApi.updatePublicShare(
+        editingShare.id,
+        updatePayload,
+      );
+      setPublicShares((prev) =>
+        prev.map((share) =>
+          share.id === updated.id ? { ...share, ...updated } : share,
+        ),
+      );
+      toast({ title: 'Public link updated' });
+      setEditDialogOpen(false);
+      setEditingShare(null);
+    } catch (error) {
+      console.error('Failed to update public share:', error);
+      toast({
+        title: 'Update failed',
+        description: 'Could not update public share settings.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const totalItems =
     sharedWithMe.length + publicShares.length + sharedByMe.length;
 
@@ -184,6 +275,7 @@ export default function SharedPage() {
                   const fileName = share.file?.name ?? 'File';
                   const mimeType = share.file?.mime_type ?? '';
                   const isFolder = !!share.file?.is_folder;
+                  const expiryLabel = formatExpiryLabel(share.expires_at);
                   const IconComponent = getFileIcon(
                     fileName,
                     mimeType,
@@ -202,7 +294,7 @@ export default function SharedPage() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: index * 0.05 }}
                     >
-                      <Card className="p-4 h-full hover:border-primary/50 transition-colors">
+                      <Card className="h-full border-border/70 bg-gradient-to-b from-background to-muted/20 p-4 transition-colors hover:border-primary/50">
                         <div className="flex h-full flex-col">
                           <div className="flex items-start justify-between">
                             <div
@@ -229,8 +321,31 @@ export default function SharedPage() {
                                 ? 'Folder'
                                 : formatBytes(Number(share.file?.size || 0))}
                             </p>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px]"
+                              >
+                                {share.password ? 'Protected' : 'No password'}
+                              </Badge>
+                              {expiryLabel ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px]"
+                                >
+                                  {expiryLabel}
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px]"
+                                >
+                                  No expiry
+                                </Badge>
+                              )}
+                            </div>
                           </div>
-                          <div className="mt-auto pt-4 grid grid-cols-2 gap-2">
+                          <div className="mt-auto pt-4 space-y-2">
                             <Button
                               variant="secondary"
                               size="sm"
@@ -246,6 +361,14 @@ export default function SharedPage() {
                                 <Copy className="h-3 w-3 mr-1" />
                               )}
                               Copy
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full"
+                              onClick={() => handleEditPublicShare(share)}
+                            >
+                              Edit
                             </Button>
                             <Button
                               variant="destructive"
@@ -478,6 +601,85 @@ export default function SharedPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="w-[95vw] max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit public link</DialogTitle>
+            <DialogDescription>
+              Update password protection and expiry for this public link.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-public-password">New password</Label>
+              <Input
+                id="edit-public-password"
+                type="password"
+                placeholder="Leave empty to keep current"
+                value={editPassword}
+                onChange={(e) => {
+                  setEditPassword(e.target.value);
+                  if (e.target.value) setClearPassword(false);
+                }}
+              />
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="clear-public-password"
+                  checked={clearPassword}
+                  onCheckedChange={(checked) => {
+                    const enabled = checked === true;
+                    setClearPassword(enabled);
+                    if (enabled) setEditPassword('');
+                  }}
+                />
+                <Label htmlFor="clear-public-password">
+                  Remove password protection
+                </Label>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-public-expiry">Expiry</Label>
+              <Input
+                id="edit-public-expiry"
+                type="datetime-local"
+                value={editExpiresAt}
+                onChange={(e) => {
+                  setEditExpiresAt(e.target.value);
+                  if (e.target.value) setClearExpiry(false);
+                }}
+              />
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="clear-public-expiry"
+                  checked={clearExpiry}
+                  onCheckedChange={(checked) => {
+                    const enabled = checked === true;
+                    setClearExpiry(enabled);
+                    if (enabled) setEditExpiresAt('');
+                  }}
+                />
+                <Label htmlFor="clear-public-expiry">Remove expiry</Label>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEditDialogOpen(false);
+                setEditingShare(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSavePublicShare}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ToastContainer />
     </div>

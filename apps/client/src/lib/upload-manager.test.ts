@@ -421,7 +421,7 @@ describe('UploadManager', () => {
       globalThis.XMLHttpRequest = origXHR;
     });
 
-    it('sends FormData via XHR PUT with auth header', async () => {
+    it('sends FormData via XHR PUT', async () => {
       const mod = await createManager();
       const manager = mod.uploadManager;
 
@@ -431,7 +431,6 @@ describe('UploadManager', () => {
       const uploadPromise = manager.uploadWithXHR(
         '/files/123/upload',
         file,
-        'my-token',
         progressFn,
       );
 
@@ -447,15 +446,11 @@ describe('UploadManager', () => {
         'PUT',
         expect.stringContaining('/files/123/upload'),
       );
-      expect(mockSetRequestHeader).toHaveBeenCalledWith(
-        'Authorization',
-        'Bearer my-token',
-      );
       expect(mockSend).toHaveBeenCalled();
       manager.destroy();
     });
 
-    it('does not set Authorization header when token is null', async () => {
+    it('does not set Authorization header', async () => {
       const mod = await createManager();
       const manager = mod.uploadManager;
 
@@ -464,7 +459,6 @@ describe('UploadManager', () => {
       const uploadPromise = manager.uploadWithXHR(
         '/files/123/upload',
         file,
-        null,
         vi.fn(),
       );
 

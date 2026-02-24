@@ -156,9 +156,9 @@ export function FileListRow({
         {file.updated_at ? formatDate(file.updated_at) : '—'}
       </div>
 
-      {/* Actions — visible on hover */}
+      {/* Actions — always visible */}
       <div
-        className="w-20 shrink-0 flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="w-20 shrink-0 flex items-center justify-end gap-0.5"
         onClick={(e) => e.stopPropagation()}
       >
         {!file.is_folder && onPreview && (

@@ -13,7 +13,6 @@ import { authApi, type User } from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
-  token: string | null;
   loading: boolean;
   needsSetup: boolean | null;
   login: (user: User) => void;
@@ -23,7 +22,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  token: null,
   loading: true,
   needsSetup: null,
   login: () => {},
@@ -33,16 +31,13 @@ const AuthContext = createContext<AuthContextType>({
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const router = useRouter();
   const pathname = usePathname();
 
   const logout = useCallback(() => {
-    localStorage.removeItem('token');
     setUser(null);
-    setToken(null);
     router.push('/login');
   }, [router]);
 
@@ -51,9 +46,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const userData = await authApi.me();
       setUser(userData);
     } catch {
-      // Token is invalid, clear it
-      localStorage.removeItem('token');
-      setToken(null);
       setUser(null);
     }
   }, []);
@@ -73,18 +65,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        const savedToken = localStorage.getItem('token');
-        if (savedToken) {
-          setToken(savedToken);
-          try {
-            const userData = await authApi.me();
-            if (canceled) return;
-            setUser(userData);
-          } catch {
-            if (canceled) return;
-            localStorage.removeItem('token');
-            setToken(null);
-          }
+        try {
+          const userData = await authApi.me();
+          if (canceled) return;
+          setUser(userData);
+        } catch {
+          if (canceled) return;
+          setUser(null);
         }
       } catch (error) {
         if (canceled) return;
@@ -112,17 +99,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [needsSetup, pathname, router]);
 
   const login = (user: User) => {
-    if (user.token) {
-      localStorage.setItem('token', user.token);
-      setToken(user.token);
-      setUser(user);
-      setNeedsSetup(false);
-    }
+    setUser(user);
+    setNeedsSetup(false);
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, token, loading, needsSetup, login, logout, refreshUser }}
+      value={{ user, loading, needsSetup, login, logout, refreshUser }}
     >
       {children}
     </AuthContext.Provider>

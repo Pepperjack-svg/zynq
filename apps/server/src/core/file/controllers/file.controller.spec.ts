@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { promises as fs } from 'fs';
 import { FileController } from './file.controller';
 import { FileService } from '../file.service';
 import { UserRole } from '../../user/entities/user.entity';
@@ -241,10 +242,19 @@ describe('FileController', () => {
   });
 
   describe('uploadFileContent', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('should delegate to fileService.uploadFileContent', async () => {
+      const fileData = Buffer.from('file content');
       const mockMulterFile = {
-        buffer: Buffer.from('file content'),
+        path: '/tmp/uploaded-file',
       } as Express.Multer.File;
+      const readFileSpy = jest
+        .spyOn(fs, 'readFile')
+        .mockResolvedValue(fileData);
+      const unlinkSpy = jest.spyOn(fs, 'unlink').mockResolvedValue(undefined);
       fileService.uploadFileContent.mockResolvedValue(mockFile as any);
 
       await controller.uploadFileContent(
@@ -256,8 +266,10 @@ describe('FileController', () => {
       expect(fileService.uploadFileContent).toHaveBeenCalledWith(
         'file-123',
         'user-123',
-        mockMulterFile.buffer,
+        fileData,
       );
+      expect(readFileSpy).toHaveBeenCalledWith('/tmp/uploaded-file');
+      expect(unlinkSpy).toHaveBeenCalledWith('/tmp/uploaded-file');
     });
 
     it('should return error if no file provided', async () => {
@@ -268,6 +280,16 @@ describe('FileController', () => {
       );
 
       expect(result).toEqual({ error: 'No file provided' });
+    });
+
+    it('should return error if uploaded file path is missing', async () => {
+      const result = await controller.uploadFileContent(
+        mockUser as any,
+        'file-123',
+        {} as Express.Multer.File,
+      );
+
+      expect(result).toEqual({ error: 'Uploaded file path not found' });
     });
   });
 

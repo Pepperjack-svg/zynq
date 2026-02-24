@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, Not, In } from 'typeorm';
@@ -12,7 +13,9 @@ import { StorageService } from '../storage/storage.service';
 import { UserService } from '../user/user.service';
 import { CreateFileDto, BLOCKED_EXTENSIONS_REGEX } from './dto/create-file.dto';
 import { ShareFileDto } from '../share/dto/share-file.dto';
+import { UpdatePublicShareDto } from '../share/dto/update-public-share.dto';
 import { randomBytes } from 'crypto';
+import * as bcrypt from 'bcrypt';
 
 // File types that support duplicate detection
 const DOCUMENT_EXTENSIONS = [
@@ -67,6 +70,28 @@ export class FileService {
       }
     }
     return { ownerId: file.owner_id, fileId: file.id };
+  }
+
+  private async assertPublicShareAccess(
+    share: Pick<Share, 'expires_at' | 'password'>,
+    providedPassword?: string,
+  ): Promise<void> {
+    if (share.expires_at && share.expires_at < new Date()) {
+      throw new NotFoundException('Public share not found');
+    }
+
+    if (share.password) {
+      if (!providedPassword) {
+        throw new ForbiddenException('Share password required');
+      }
+      const isValidPassword = await bcrypt.compare(
+        providedPassword,
+        share.password,
+      );
+      if (!isValidPassword) {
+        throw new ForbiddenException('Invalid share password');
+      }
+    }
   }
 
   private async hasActiveStorageReferences(
@@ -511,6 +536,43 @@ export class FileService {
       throw new BadRequestException('Cannot share with yourself');
     }
 
+    const publicBaseUrl = (
+      requestOrigin ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
+
+    if (shareDto.isPublic) {
+      const existingPublicShare = await this.sharesRepository.findOne({
+        where: {
+          file_id: file.id,
+          created_by: userId,
+          is_public: true,
+        },
+      });
+
+      if (existingPublicShare) {
+        if (shareDto.password) {
+          existingPublicShare.password = await bcrypt.hash(
+            shareDto.password,
+            12,
+          );
+        }
+        if (shareDto.expiresAt) {
+          existingPublicShare.expires_at = new Date(shareDto.expiresAt);
+        }
+        if (!existingPublicShare.share_token) {
+          existingPublicShare.share_token = randomBytes(16).toString('hex');
+        }
+        await this.sharesRepository.save(existingPublicShare);
+
+        return {
+          ...existingPublicShare,
+          publicLink: `${publicBaseUrl}/share/${existingPublicShare.share_token}`,
+        };
+      }
+    }
+
     const share = this.sharesRepository.create({
       file_id: file.id,
       grantee_user_id: shareDto.toUserId,
@@ -521,15 +583,14 @@ export class FileService {
       share_token: shareDto.isPublic
         ? randomBytes(16).toString('hex')
         : undefined,
+      expires_at: shareDto.expiresAt ? new Date(shareDto.expiresAt) : undefined,
+      password:
+        shareDto.isPublic && shareDto.password
+          ? await bcrypt.hash(shareDto.password, 12)
+          : undefined,
     });
 
     const saved = await this.sharesRepository.save(share);
-
-    const publicBaseUrl = (
-      requestOrigin ||
-      process.env.FRONTEND_URL ||
-      'http://localhost:3000'
-    ).replace(/\/+$/, '');
 
     return {
       ...saved,
@@ -646,10 +707,17 @@ export class FileService {
       where: { share_token: token, is_public: true },
       relations: ['file'],
     });
-    return share?.file || null;
+    if (!share) return null;
+
+    try {
+      await this.assertPublicShareAccess(share, undefined);
+      return share.file;
+    } catch {
+      return null;
+    }
   }
 
-  async getPublicShare(token: string) {
+  async getPublicShare(token: string, password?: string) {
     const share = await this.sharesRepository.findOne({
       where: { share_token: token, is_public: true },
       relations: ['file', 'file.owner'],
@@ -658,6 +726,7 @@ export class FileService {
     if (!share) {
       throw new NotFoundException('Public share not found');
     }
+    await this.assertPublicShareAccess(share, password);
 
     const file = share.file;
 
@@ -667,7 +736,6 @@ export class FileService {
       size: file.size,
       mimeType: file.mime_type,
       owner: file.owner.name,
-      ownerId: file.owner_id,
       createdAt: file.created_at,
       isFolder: file.is_folder,
       hasContent: !!(file.encrypted_dek && file.encryption_iv),
@@ -676,6 +744,7 @@ export class FileService {
 
   async downloadPublicFile(
     token: string,
+    password?: string,
   ): Promise<{ data: Buffer; file: File }> {
     const share = await this.sharesRepository.findOne({
       where: { share_token: token, is_public: true },
@@ -685,6 +754,7 @@ export class FileService {
     if (!share) {
       throw new NotFoundException('Public share not found');
     }
+    await this.assertPublicShareAccess(share, password);
 
     const file = share.file;
 
@@ -718,6 +788,49 @@ export class FileService {
       where: { created_by: userId, is_public: false },
       relations: ['file', 'grantee_user'],
     });
+  }
+
+  async updatePublicShareSettings(
+    shareId: string,
+    userId: string,
+    updateDto: UpdatePublicShareDto,
+    requestOrigin?: string,
+  ): Promise<Share & { publicLink: string }> {
+    const share = await this.sharesRepository.findOne({
+      where: { id: shareId, created_by: userId, is_public: true },
+    });
+
+    if (!share) {
+      throw new NotFoundException('Public share not found');
+    }
+
+    if (updateDto.clearPassword) {
+      share.password = null;
+    } else if (updateDto.password) {
+      share.password = await bcrypt.hash(updateDto.password, 12);
+    }
+
+    if (updateDto.clearExpiry) {
+      share.expires_at = null;
+    } else if (updateDto.expiresAt) {
+      share.expires_at = new Date(updateDto.expiresAt);
+    }
+
+    if (!share.share_token) {
+      share.share_token = randomBytes(16).toString('hex');
+    }
+
+    const saved = await this.sharesRepository.save(share);
+    const publicBaseUrl = (
+      requestOrigin ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
+
+    return {
+      ...saved,
+      publicLink: `${publicBaseUrl}/share/${saved.share_token}`,
+    };
   }
 
   async revokeShare(shareId: string, userId: string): Promise<void> {

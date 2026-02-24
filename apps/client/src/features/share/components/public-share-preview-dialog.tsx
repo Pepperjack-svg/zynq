@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -9,140 +9,102 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Loader2, Download, X } from 'lucide-react';
-import { ApiError, type FileMetadata, fileApi } from '@/lib/api';
+import { ApiError, publicApi } from '@/lib/api';
 import { getFileIcon, getIconColor } from '@/features/file/utils/file-icons';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 
-interface FilePreviewDialogProps {
-  file: FileMetadata;
+interface PublicSharePreviewDialogProps {
+  token: string;
+  password?: string;
+  file: {
+    name: string;
+    mimeType: string;
+    hasContent: boolean;
+  };
   onClose: () => void;
 }
 
 function getPreviewType(
   mimeType: string,
   name: string,
-): 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'code' | 'none' {
+): 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'none' {
   if (mimeType.startsWith('image/')) return 'image';
   if (mimeType.startsWith('video/')) return 'video';
   if (mimeType.startsWith('audio/')) return 'audio';
   if (mimeType === 'application/pdf') return 'pdf';
-
-  const ext = name.split('.').pop()?.toLowerCase() || '';
-  const codeExts = [
-    'js',
-    'jsx',
-    'ts',
-    'tsx',
-    'py',
-    'java',
-    'c',
-    'cpp',
-    'h',
-    'hpp',
-    'cs',
-    'go',
-    'rs',
-    'rb',
-    'php',
-    'swift',
-    'kt',
-    'html',
-    'htm',
-    'css',
-    'scss',
-    'sass',
-    'json',
-    'xml',
-    'yaml',
-    'yml',
-    'toml',
-    'sh',
-    'bash',
-    'sql',
-    'vue',
-    'svelte',
-    'md',
-    'markdown',
-  ];
-  const textExts = [
-    'txt',
-    'log',
-    'csv',
-    'env',
-    'gitignore',
-    'dockerignore',
-    'editorconfig',
-    'ini',
-    'conf',
-    'cfg',
-  ];
-
-  if (codeExts.includes(ext)) return 'code';
-  if (textExts.includes(ext)) return 'text';
-  if (mimeType.startsWith('text/')) return 'text';
-
+  if (
+    mimeType.startsWith('text/') ||
+    ['txt', 'md', 'json', 'csv', 'xml', 'yaml', 'yml', 'log'].includes(
+      name.split('.').pop()?.toLowerCase() || '',
+    )
+  ) {
+    return 'text';
+  }
   return 'none';
 }
 
-export function FilePreviewDialog({ file, onClose }: FilePreviewDialogProps) {
-  const previewMaxHeight = 'calc(96vh - 72px)';
+export function PublicSharePreviewDialog({
+  token,
+  password,
+  file,
+  onClose,
+}: PublicSharePreviewDialogProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  const previewType = getPreviewType(file.mime_type, file.name);
-  const IconComponent = getFileIcon(file.name, file.mime_type, false);
-  const iconColor = getIconColor(file.name, file.mime_type, false);
+  const previewType = getPreviewType(file.mimeType, file.name);
+  const IconComponent = getFileIcon(file.name, file.mimeType, false);
+  const iconColor = getIconColor(file.name, file.mimeType, false);
 
   useEffect(() => {
     let stale = false;
     let createdUrl: string | null = null;
 
     const load = async () => {
+      if (!file.hasContent || previewType === 'none') {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError('');
       try {
-        const { blob } = await fileApi.download(file.id);
+        const { blob } = await publicApi.downloadShare(token, password);
         if (stale) return;
-        if (previewType === 'text' || previewType === 'code') {
+
+        if (previewType === 'text') {
           const text = await blob.text();
           if (!stale) setTextContent(text);
-        } else if (previewType !== 'none') {
+        } else {
           createdUrl = URL.createObjectURL(blob);
           if (!stale) setBlobUrl(createdUrl);
         }
-      } catch (err) {
-        if (!stale) {
-          setError(
-            err instanceof ApiError ? err.message : 'Failed to load preview.',
-          );
-        }
+      } catch {
+        if (!stale) setError('Failed to load preview.');
       } finally {
         if (!stale) setLoading(false);
       }
     };
 
-    if (previewType !== 'none') {
-      void load();
-    } else {
-      setLoading(false);
-    }
+    setBlobUrl(null);
+    setTextContent(null);
+    void load();
 
     return () => {
       stale = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [file.id, previewType]);
+  }, [file.hasContent, file.name, file.mimeType, password, previewType, token]);
 
   const handleDownload = async () => {
     try {
-      const { blob, fileName } = await fileApi.download(file.id);
+      const { blob, fileName } = await publicApi.downloadShare(token, password);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = fileName || file.name;
+      a.download = fileName || file.name || 'download';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -226,14 +188,14 @@ export function FilePreviewDialog({ file, onClose }: FilePreviewDialogProps) {
               src={blobUrl}
               alt={file.name}
               className="max-w-full max-h-full object-contain p-2"
-              style={{ maxHeight: previewMaxHeight }}
+              style={{ maxHeight: 'calc(96vh - 72px)' }}
             />
           ) : previewType === 'video' && blobUrl ? (
             <video
               src={blobUrl}
               controls
               className="max-w-full max-h-full p-2"
-              style={{ maxHeight: previewMaxHeight }}
+              style={{ maxHeight: 'calc(96vh - 72px)' }}
             />
           ) : previewType === 'audio' && blobUrl ? (
             <div className="py-8 px-4 w-full flex flex-col items-center gap-4">
@@ -246,13 +208,12 @@ export function FilePreviewDialog({ file, onClose }: FilePreviewDialogProps) {
               src={blobUrl}
               type="application/pdf"
               className="w-full"
-              style={{ height: previewMaxHeight }}
+              style={{ height: 'calc(96vh - 72px)' }}
             />
-          ) : (previewType === 'text' || previewType === 'code') &&
-            textContent !== null ? (
+          ) : previewType === 'text' && textContent !== null ? (
             <pre
               className="w-full overflow-auto p-4 text-xs font-mono leading-relaxed text-foreground whitespace-pre-wrap break-all"
-              style={{ maxHeight: previewMaxHeight }}
+              style={{ maxHeight: 'calc(96vh - 72px)' }}
             >
               {textContent}
             </pre>

@@ -34,6 +34,20 @@ export class AuthController {
     private configService: ConfigService,
   ) {}
 
+  private getCookieOptions() {
+    const cookieDomain = this.configService
+      .get<string>('COOKIE_DOMAIN')
+      ?.trim();
+    return {
+      httpOnly: true,
+      secure: this.configService.get('NODE_ENV') === 'production',
+      sameSite: 'strict' as const,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
+      ...(cookieDomain ? { domain: cookieDomain } : {}),
+    };
+  }
+
   /** Returns whether initial admin setup is required (no users exist). */
   @Get('setup-status')
   async getSetupStatus() {
@@ -51,15 +65,10 @@ export class AuthController {
     const user = await this.authService.register(registerDto);
     const token = this.authService.generateJwtToken(user);
 
-    response.cookie('jid', token, {
-      httpOnly: true,
-      secure: this.configService.get('NODE_ENV') === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    response.cookie('jid', token, this.getCookieOptions());
 
     const { password_hash: _, ...userWithoutPassword } = user;
-    return { ...userWithoutPassword, token };
+    return userWithoutPassword;
   }
 
   /** Authenticates user and sets JWT cookie. */
@@ -73,15 +82,10 @@ export class AuthController {
     const user = await this.authService.login(loginDto);
     const token = this.authService.generateJwtToken(user);
 
-    response.cookie('jid', token, {
-      httpOnly: true,
-      secure: this.configService.get('NODE_ENV') === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    response.cookie('jid', token, this.getCookieOptions());
 
     const { password_hash: _, ...userWithoutPassword } = user;
-    return { ...userWithoutPassword, token };
+    return userWithoutPassword;
   }
 
   /** Initiates password reset. Sends email if user exists. */
@@ -108,7 +112,10 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   logout(@Res({ passthrough: true }) response: Response) {
-    response.clearCookie('jid');
+    const clearCookieOptions = { ...this.getCookieOptions() };
+    delete (clearCookieOptions as { maxAge?: number }).maxAge;
+    delete (clearCookieOptions as { expires?: Date }).expires;
+    response.clearCookie('jid', clearCookieOptions);
     return { success: true };
   }
 
