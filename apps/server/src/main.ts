@@ -46,7 +46,7 @@ async function bootstrap() {
         return;
       }
 
-      callback(new Error('CORS origin not allowed'));
+      callback(null, false);
     },
     credentials: true,
   });

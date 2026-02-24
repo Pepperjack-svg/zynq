@@ -112,7 +112,10 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   logout(@Res({ passthrough: true }) response: Response) {
-    response.clearCookie('jid', this.getCookieOptions());
+    const clearCookieOptions = { ...this.getCookieOptions() };
+    delete (clearCookieOptions as { maxAge?: number }).maxAge;
+    delete (clearCookieOptions as { expires?: Date }).expires;
+    response.clearCookie('jid', clearCookieOptions);
     return { success: true };
   }
 

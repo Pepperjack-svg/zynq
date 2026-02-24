@@ -47,11 +47,32 @@ describe('PublicShareController', () => {
       const shareData = { file: mockFile, share: { token: 'abc123' } };
       fileService.getPublicShare.mockResolvedValue(shareData as any);
 
-      const result = await controller.getPublicShare('abc123', undefined);
+      const result = await controller.getPublicShare(
+        'abc123',
+        { ip: '127.0.0.1' } as any,
+        undefined,
+      );
 
       expect(fileService.getPublicShare).toHaveBeenCalledWith(
         'abc123',
         undefined,
+      );
+      expect(result).toEqual(shareData);
+    });
+
+    it('should forward password header to fileService.getPublicShare', async () => {
+      const shareData = { file: mockFile, share: { token: 'abc123' } };
+      fileService.getPublicShare.mockResolvedValue(shareData as any);
+
+      const result = await controller.getPublicShare(
+        'abc123',
+        { ip: '127.0.0.1' } as any,
+        'pass123',
+      );
+
+      expect(fileService.getPublicShare).toHaveBeenCalledWith(
+        'abc123',
+        'pass123',
       );
       expect(result).toEqual(shareData);
     });
@@ -65,7 +86,7 @@ describe('PublicShareController', () => {
         file: mockFile as any,
       });
 
-      await controller.downloadPublicFile('abc123', undefined, mockResponse);
+      await controller.downloadPublicFile('abc123', mockResponse, undefined);
 
       expect(fileService.downloadPublicFile).toHaveBeenCalledWith(
         'abc123',
@@ -88,13 +109,29 @@ describe('PublicShareController', () => {
         file: fileWithNoMime as any,
       });
 
-      await controller.downloadPublicFile('token-456', undefined, mockResponse);
+      await controller.downloadPublicFile('token-456', mockResponse, undefined);
 
       expect(mockResponse.set).toHaveBeenCalledWith(
         expect.objectContaining({
           'Content-Type': 'application/octet-stream',
         }),
       );
+    });
+
+    it('should forward password header to fileService.downloadPublicFile', async () => {
+      const fileData = Buffer.from('secure file');
+      fileService.downloadPublicFile.mockResolvedValue({
+        data: fileData,
+        file: mockFile as any,
+      });
+
+      await controller.downloadPublicFile('abc123', mockResponse, 'pass123');
+
+      expect(fileService.downloadPublicFile).toHaveBeenCalledWith(
+        'abc123',
+        'pass123',
+      );
+      expect(mockResponse.send).toHaveBeenCalledWith(fileData);
     });
   });
 });

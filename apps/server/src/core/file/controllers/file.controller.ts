@@ -13,12 +13,15 @@ import {
   HttpStatus,
   Req,
   Res,
+  UseFilters,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
+import { promises as fs } from 'fs';
+import { tmpdir } from 'os';
 import { FileService } from '../file.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
@@ -29,6 +32,8 @@ import { ShareFileDto } from '../../share/dto/share-file.dto';
 import { File as FileEntity } from '../entities/file.entity';
 import * as archiver from 'archiver';
 import { getRequestOrigin } from '../../../common/utils/request-origin.util';
+import { MulterExceptionFilter } from '../../../common/filters/multer-exception.filter';
+import { diskStorage } from 'multer';
 
 const MAX_UPLOAD_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB hard limit per upload request
 
@@ -171,8 +176,12 @@ export class FileController {
 
   @Put(':id/upload')
   @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @UseFilters(MulterExceptionFilter)
   @UseInterceptors(
     FileInterceptor('file', {
+      storage: diskStorage({
+        destination: tmpdir(),
+      }),
       limits: { fileSize: MAX_UPLOAD_SIZE_BYTES, files: 1 },
     }),
   )
@@ -184,7 +193,16 @@ export class FileController {
     if (!file) {
       return { error: 'No file provided' };
     }
-    return this.fileService.uploadFileContent(id, user.id, file.buffer);
+    if (!file.path) {
+      return { error: 'Uploaded file path not found' };
+    }
+
+    try {
+      const data = await fs.readFile(file.path);
+      return this.fileService.uploadFileContent(id, user.id, data);
+    } finally {
+      await fs.unlink(file.path).catch(() => undefined);
+    }
   }
 
   @Get(':id/download')

@@ -17,6 +17,8 @@ function validateEnv(config: Record<string, unknown>) {
     'DATABASE_NAME',
     'JWT_SECRET',
     'FILE_ENCRYPTION_MASTER_KEY',
+    'RATE_LIMIT_TTL',
+    'RATE_LIMIT_MAX',
   ];
 
   for (const key of requiredKeys) {
@@ -31,8 +33,8 @@ function validateEnv(config: Record<string, unknown>) {
     throw new Error('DATABASE_PORT must be a positive integer');
   }
 
-  const rateLimitTtl = Number(config.RATE_LIMIT_TTL ?? 60000);
-  const rateLimitMax = Number(config.RATE_LIMIT_MAX ?? 100);
+  const rateLimitTtl = Number(config.RATE_LIMIT_TTL);
+  const rateLimitMax = Number(config.RATE_LIMIT_MAX);
   if (!Number.isInteger(rateLimitTtl) || rateLimitTtl <= 0) {
     throw new Error('RATE_LIMIT_TTL must be a positive integer');
   }
@@ -87,8 +89,8 @@ function validateEnv(config: Record<string, unknown>) {
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => [
         {
-          ttl: configService.get('RATE_LIMIT_TTL') || 60000,
-          limit: configService.get('RATE_LIMIT_MAX') || 100,
+          ttl: configService.get<number>('RATE_LIMIT_TTL') as number,
+          limit: configService.get<number>('RATE_LIMIT_MAX') as number,
         },
       ],
       inject: [ConfigService],

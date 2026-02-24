@@ -1,9 +1,10 @@
-import { Controller, Get, Res } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Req, Res } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'fs';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 
 interface HealthCheck {
   status: 'healthy' | 'unhealthy';
@@ -32,6 +33,7 @@ interface MemoryCheck {
 }
 
 @Controller('health')
+@SkipThrottle()
 export class HealthController {
   private storagePath: string;
   private startTime: number;
@@ -88,11 +90,35 @@ export class HealthController {
   }
 
   @Get('metrics')
-  async metrics(@Res() res: Response): Promise<void> {
+  async metrics(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const metricsApiKey = this.configService.get<string>('METRICS_API_KEY');
+    const suppliedKey = req.headers['x-metrics-key'];
+    const keyHeader =
+      typeof suppliedKey === 'string' ? suppliedKey : suppliedKey?.[0];
+
+    const rawAllowlist = this.configService.get<string>('METRICS_IP_ALLOWLIST');
+    const allowedIps = (rawAllowlist || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    const ipAllowed = allowedIps.length === 0 || allowedIps.includes(req.ip);
+    const keyAllowed = Boolean(metricsApiKey) && keyHeader === metricsApiKey;
+
+    if (!ipAllowed || !keyAllowed) {
+      res.status(HttpStatus.FORBIDDEN).json({
+        statusCode: HttpStatus.FORBIDDEN,
+        message: 'Forbidden',
+      });
+      return;
+    }
+
     const memUsage = process.memoryUsage();
     const uptimeSeconds = Math.floor((Date.now() - this.startTime) / 1000);
-    const dbStatus = await this.checkDatabase();
-    const storageStatus = await this.checkStorage();
+    const [dbStatus, storageStatus] = await Promise.all([
+      this.checkDatabase(),
+      this.checkStorage(),
+    ]);
 
     const metrics = [
       '# HELP zynqcloud_uptime_seconds Process uptime in seconds',

@@ -675,7 +675,14 @@ export class FileService {
       where: { share_token: token, is_public: true },
       relations: ['file'],
     });
-    return share?.file || null;
+    if (!share) return null;
+
+    try {
+      await this.assertPublicShareAccess(share, undefined);
+      return share.file;
+    } catch {
+      return null;
+    }
   }
 
   async getPublicShare(token: string, password?: string) {
@@ -697,7 +704,6 @@ export class FileService {
       size: file.size,
       mimeType: file.mime_type,
       owner: file.owner.name,
-      ownerId: file.owner_id,
       createdAt: file.created_at,
       isFolder: file.is_folder,
       hasContent: !!(file.encrypted_dek && file.encryption_iv),

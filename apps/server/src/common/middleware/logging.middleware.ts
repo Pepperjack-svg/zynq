@@ -15,16 +15,11 @@ export class LoggingMiddleware implements NestMiddleware {
 
     // Get request details
     const { method, originalUrl } = req;
-    const forwardedFor = req.headers['x-forwarded-for'];
-    const realIp =
-      typeof forwardedFor === 'string'
-        ? forwardedFor.split(',')[0].trim()
-        : req.ip;
     const userAgent = req.get('user-agent') || '';
 
     // Log incoming request
     this.logger.log(
-      `→ ${method} ${originalUrl} - IP: ${realIp} - UserAgent: ${userAgent.substring(0, 50)}`,
+      `→ ${method} ${originalUrl} - IP: ${req.ip} - UserAgent: ${userAgent.substring(0, 50)}`,
     );
 
     // Capture response
