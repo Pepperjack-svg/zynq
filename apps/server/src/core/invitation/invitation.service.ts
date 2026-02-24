@@ -42,8 +42,8 @@ export class InvitationService {
     const saved = await this.invitationsRepository.save(invitation);
 
     const frontendUrl = (
-      requestOrigin ||
       this.configService.get('FRONTEND_URL') ||
+      requestOrigin ||
       'http://localhost:3000'
     ).replace(/\/+$/, '');
     const link = `${frontendUrl}/register?inviteToken=${token}`;

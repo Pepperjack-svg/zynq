@@ -331,7 +331,19 @@ describe('FileController', () => {
   });
 
   describe('share', () => {
+    const originalTrustProxy = process.env.TRUST_PROXY;
+    const originalFrontendUrl = process.env.FRONTEND_URL;
+    const originalAllowedOrigins = process.env.ALLOWED_ORIGINS;
+
+    afterEach(() => {
+      process.env.TRUST_PROXY = originalTrustProxy;
+      process.env.FRONTEND_URL = originalFrontendUrl;
+      process.env.ALLOWED_ORIGINS = originalAllowedOrigins;
+    });
+
     it('should delegate to fileService.share', () => {
+      delete process.env.FRONTEND_URL;
+      delete process.env.ALLOWED_ORIGINS;
       const shareDto = { type: 'public' };
       const shareResult = { token: 'share-token' };
       fileService.share.mockResolvedValue(shareResult as any);
@@ -347,6 +359,50 @@ describe('FileController', () => {
         'user-123',
         shareDto,
         'http://192.168.1.10:3000',
+      );
+    });
+
+    it('should prefer x-forwarded-host when present', () => {
+      process.env.TRUST_PROXY = 'true';
+      delete process.env.FRONTEND_URL;
+      delete process.env.ALLOWED_ORIGINS;
+      const shareDto = { type: 'public' };
+      fileService.share.mockResolvedValue({ token: 'share-token' } as any);
+      const req = {
+        headers: {
+          'x-forwarded-host': 'proxy.example:80',
+          host: 'ignored:3000',
+        },
+        protocol: 'https',
+      } as any;
+
+      controller.share(mockUser as any, 'file-123', shareDto as any, req);
+
+      expect(fileService.share).toHaveBeenCalledWith(
+        'file-123',
+        'user-123',
+        shareDto,
+        'https://proxy.example:80',
+      );
+    });
+
+    it('should pass undefined origin when host headers are missing', () => {
+      delete process.env.FRONTEND_URL;
+      delete process.env.ALLOWED_ORIGINS;
+      const shareDto = { type: 'public' };
+      fileService.share.mockResolvedValue({ token: 'share-token' } as any);
+      const req = {
+        headers: {},
+        protocol: 'https',
+      } as any;
+
+      controller.share(mockUser as any, 'file-123', shareDto as any, req);
+
+      expect(fileService.share).toHaveBeenCalledWith(
+        'file-123',
+        'user-123',
+        shareDto,
+        undefined,
       );
     });
   });
