@@ -17,6 +17,7 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { FileService } from '../file.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
@@ -28,6 +29,8 @@ import { ShareFileDto } from '../../share/dto/share-file.dto';
 import { File as FileEntity } from '../entities/file.entity';
 import * as archiver from 'archiver';
 import { getRequestOrigin } from '../../../common/utils/request-origin.util';
+
+const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024; // 100MB hard limit per upload request
 
 /**
  * File management endpoints: CRUD, upload, download, share, trash.
@@ -167,7 +170,12 @@ export class FileController {
   }
 
   @Put(':id/upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_UPLOAD_SIZE_BYTES, files: 1 },
+    }),
+  )
   async uploadFileContent(
     @CurrentUser() user: User,
     @Param('id') id: string,

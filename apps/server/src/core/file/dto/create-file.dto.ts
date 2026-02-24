@@ -112,7 +112,7 @@ export class CreateFileDto {
   name: string;
 
   @IsNumber()
-  @Max(5368709120, { message: 'File size cannot exceed 5GB' }) // 5GB max
+  @Max(104857600, { message: 'File size cannot exceed 100MB' }) // 100MB max
   size: number;
 
   @IsString()
