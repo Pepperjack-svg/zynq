@@ -15,9 +15,16 @@ import { FileService } from '../../file/file.service';
 
 @Controller('public')
 export class PublicShareController {
+  private static readonly PASSWORD_WINDOW_MS = 60_000;
+  private static readonly PASSWORD_WINDOW_MAX_ATTEMPTS = 10;
+
   private failedPasswordAttempts = new Map<
     string,
     { attempts: number; blockedUntil?: number }
+  >();
+  private passwordAttemptWindows = new Map<
+    string,
+    { startedAt: number; attempts: number }
   >();
 
   constructor(private fileService: FileService) {}
@@ -33,6 +40,30 @@ export class PublicShareController {
     const current = this.failedPasswordAttempts.get(key);
     const now = Date.now();
 
+    if (password) {
+      const windowState = this.passwordAttemptWindows.get(key);
+      if (
+        !windowState ||
+        now - windowState.startedAt > PublicShareController.PASSWORD_WINDOW_MS
+      ) {
+        this.passwordAttemptWindows.set(key, { startedAt: now, attempts: 1 });
+      } else {
+        const attempts = windowState.attempts + 1;
+        if (attempts > PublicShareController.PASSWORD_WINDOW_MAX_ATTEMPTS) {
+          throw new HttpException(
+            'Too many password attempts. Retry in 60s',
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+        this.passwordAttemptWindows.set(key, {
+          startedAt: windowState.startedAt,
+          attempts,
+        });
+      }
+    } else {
+      this.passwordAttemptWindows.delete(key);
+    }
+
     if (password && current?.blockedUntil && current.blockedUntil > now) {
       throw new HttpException(
         'Too many failed password attempts',
@@ -43,6 +74,9 @@ export class PublicShareController {
     try {
       const result = await this.fileService.getPublicShare(token, password);
       this.failedPasswordAttempts.delete(key);
+      if (password) {
+        this.passwordAttemptWindows.delete(key);
+      }
       return result;
     } catch (error) {
       if (password && error instanceof ForbiddenException) {

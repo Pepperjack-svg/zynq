@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { HttpException, HttpStatus } from '@nestjs/common';
 import { PublicShareController } from './public-share.controller';
 import { FileService } from '../../file/file.service';
 
@@ -75,6 +76,25 @@ describe('PublicShareController', () => {
         'pass123',
       );
       expect(result).toEqual(shareData);
+    });
+
+    it('should return 429 after too many password attempts within a minute', async () => {
+      fileService.getPublicShare.mockRejectedValue(
+        new Error('Invalid password'),
+      );
+      const req = { ip: '127.0.0.1' } as any;
+
+      for (let i = 0; i < 10; i += 1) {
+        await expect(
+          controller.getPublicShare('abc123', req, `bad-pass-${i}`),
+        ).rejects.toBeInstanceOf(Error);
+      }
+
+      await expect(
+        controller.getPublicShare('abc123', req, 'bad-pass-final'),
+      ).rejects.toMatchObject({
+        status: HttpStatus.TOO_MANY_REQUESTS,
+      } as Partial<HttpException>);
     });
   });
 
