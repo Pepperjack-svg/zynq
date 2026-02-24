@@ -245,7 +245,11 @@ class UploadManager {
       formData.append('file', file);
 
       xhr.open('PUT', fullUrl);
-      xhr.withCredentials = true;
+      const isSameOrigin =
+        typeof window === 'undefined' ||
+        new URL(fullUrl, window.location.href).origin ===
+          window.location.origin;
+      xhr.withCredentials = isSameOrigin;
       xhr.send(formData);
     });
   }
