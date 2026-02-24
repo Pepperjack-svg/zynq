@@ -35,7 +35,6 @@ function wrapper({ children }: { children: ReactNode }) {
 describe('AuthContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(null);
     // Default: setup not needed, no token
     mockGetSetupStatus.mockResolvedValue({ needsSetup: false });
     mockMe.mockResolvedValue({
@@ -54,15 +53,10 @@ describe('AuthContext', () => {
 
     expect(result.current.loading).toBe(true);
     expect(result.current.user).toBeNull();
-    expect(result.current.token).toBeNull();
     expect(result.current.needsSetup).toBeNull();
   });
 
-  it('after mount, calls getSetupStatus and auth check when token exists', async () => {
-    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(
-      'saved-token',
-    );
-
+  it('after mount, calls getSetupStatus and auth check', async () => {
     const { result } = renderHook(() => useAuth(), { wrapper });
 
     await waitFor(() => {
@@ -79,21 +73,7 @@ describe('AuthContext', () => {
     });
   });
 
-  it('does not call authApi.me when no token is saved', async () => {
-    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(null);
-
-    const { result } = renderHook(() => useAuth(), { wrapper });
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    expect(mockGetSetupStatus).toHaveBeenCalledTimes(1);
-    expect(mockMe).not.toHaveBeenCalled();
-    expect(result.current.user).toBeNull();
-  });
-
-  it('login() stores token and sets user', async () => {
+  it('login() sets user', async () => {
     const { result } = renderHook(() => useAuth(), { wrapper });
 
     await waitFor(() => {
@@ -105,20 +85,17 @@ describe('AuthContext', () => {
       name: 'New User',
       email: 'new@test.com',
       role: 'admin' as const,
-      token: 'new-token-123',
     };
 
     act(() => {
       result.current.login(mockUser);
     });
 
-    expect(localStorage.setItem).toHaveBeenCalledWith('token', 'new-token-123');
     expect(result.current.user).toEqual(mockUser);
-    expect(result.current.token).toBe('new-token-123');
     expect(result.current.needsSetup).toBe(false);
   });
 
-  it('login() does nothing when user has no token', async () => {
+  it('login() accepts user object without token', async () => {
     const { result } = renderHook(() => useAuth(), { wrapper });
 
     await waitFor(() => {
@@ -137,15 +114,10 @@ describe('AuthContext', () => {
       result.current.login(mockUser);
     });
 
-    expect(localStorage.setItem).not.toHaveBeenCalled();
-    expect(result.current.user).toBeNull();
+    expect(result.current.user).toEqual(mockUser);
   });
 
-  it('logout() clears token and redirects to /login', async () => {
-    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(
-      'saved-token',
-    );
-
+  it('logout() clears user and redirects to /login', async () => {
     const { result } = renderHook(() => useAuth(), { wrapper });
 
     await waitFor(() => {
@@ -156,16 +128,11 @@ describe('AuthContext', () => {
       result.current.logout();
     });
 
-    expect(localStorage.removeItem).toHaveBeenCalledWith('token');
     expect(result.current.user).toBeNull();
-    expect(result.current.token).toBeNull();
     expect(mockPush).toHaveBeenCalledWith('/login');
   });
 
   it('provides user data after successful auth check', async () => {
-    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(
-      'valid-token',
-    );
     mockMe.mockResolvedValue({
       id: '42',
       name: 'Jane Doe',
@@ -185,13 +152,9 @@ describe('AuthContext', () => {
       email: 'jane@example.com',
       role: 'owner',
     });
-    expect(result.current.token).toBe('valid-token');
   });
 
-  it('clears token when auth check fails', async () => {
-    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(
-      'invalid-token',
-    );
+  it('clears user when auth check fails', async () => {
     mockMe.mockRejectedValue(new Error('Unauthorized'));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
@@ -201,7 +164,6 @@ describe('AuthContext', () => {
     });
 
     expect(result.current.user).toBeNull();
-    expect(localStorage.removeItem).toHaveBeenCalledWith('token');
   });
 
   it('sets needsSetup=true and stops loading when setup is needed', async () => {
@@ -229,10 +191,6 @@ describe('AuthContext', () => {
   });
 
   it('refreshUser() updates user from API', async () => {
-    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(
-      'valid-token',
-    );
-
     const { result } = renderHook(() => useAuth(), { wrapper });
 
     await waitFor(() => {

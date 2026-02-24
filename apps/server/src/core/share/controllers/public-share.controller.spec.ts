@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException, HttpException, HttpStatus } from '@nestjs/common';
 import { PublicShareController } from './public-share.controller';
 import { FileService } from '../../file/file.service';
 
@@ -47,10 +48,82 @@ describe('PublicShareController', () => {
       const shareData = { file: mockFile, share: { token: 'abc123' } };
       fileService.getPublicShare.mockResolvedValue(shareData as any);
 
-      const result = await controller.getPublicShare('abc123');
+      const result = await controller.getPublicShare(
+        'abc123',
+        { ip: '127.0.0.1' } as any,
+        undefined,
+      );
 
-      expect(fileService.getPublicShare).toHaveBeenCalledWith('abc123');
+      expect(fileService.getPublicShare).toHaveBeenCalledWith(
+        'abc123',
+        undefined,
+      );
       expect(result).toEqual(shareData);
+    });
+
+    it('should forward password header to fileService.getPublicShare', async () => {
+      const shareData = { file: mockFile, share: { token: 'abc123' } };
+      fileService.getPublicShare.mockResolvedValue(shareData as any);
+
+      const result = await controller.getPublicShare(
+        'abc123',
+        { ip: '127.0.0.1' } as any,
+        'pass123',
+      );
+
+      expect(fileService.getPublicShare).toHaveBeenCalledWith(
+        'abc123',
+        'pass123',
+      );
+      expect(result).toEqual(shareData);
+    });
+
+    it('should return 429 after too many password attempts within a minute', async () => {
+      fileService.getPublicShare.mockRejectedValue(
+        new Error('Invalid password'),
+      );
+      const req = { ip: '127.0.0.1' } as any;
+
+      for (let i = 0; i < 10; i += 1) {
+        await expect(
+          controller.getPublicShare('abc123', req, `bad-pass-${i}`),
+        ).rejects.toBeInstanceOf(Error);
+      }
+
+      await expect(
+        controller.getPublicShare('abc123', req, 'bad-pass-final'),
+      ).rejects.toMatchObject({
+        status: HttpStatus.TOO_MANY_REQUESTS,
+      } as Partial<HttpException>);
+    });
+
+    it('should continue to reject invalid password attempts after wait intervals', async () => {
+      fileService.getPublicShare.mockRejectedValue(
+        new ForbiddenException('Invalid share password'),
+      );
+      const req = { ip: '127.0.0.1' } as any;
+      const nowSpy = jest.spyOn(Date, 'now');
+      let now = 1_700_000_000_000;
+      nowSpy.mockImplementation(() => {
+        now += 5_000;
+        return now;
+      });
+
+      try {
+        await expect(
+          controller.getPublicShare('abc123', req, 'bad-pass-1'),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(
+          controller.getPublicShare('abc123', req, 'bad-pass-2'),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(
+          controller.getPublicShare('abc123', req, 'bad-pass-3'),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+
+        expect(fileService.getPublicShare).toHaveBeenCalledTimes(3);
+      } finally {
+        nowSpy.mockRestore();
+      }
     });
   });
 
@@ -62,9 +135,17 @@ describe('PublicShareController', () => {
         file: mockFile as any,
       });
 
-      await controller.downloadPublicFile('abc123', mockResponse);
+      await controller.downloadPublicFile(
+        'abc123',
+        { ip: '127.0.0.1' } as any,
+        mockResponse,
+        undefined,
+      );
 
-      expect(fileService.downloadPublicFile).toHaveBeenCalledWith('abc123');
+      expect(fileService.downloadPublicFile).toHaveBeenCalledWith(
+        'abc123',
+        undefined,
+      );
       expect(mockResponse.set).toHaveBeenCalledWith(
         expect.objectContaining({
           'Content-Type': 'application/pdf',
@@ -82,13 +163,39 @@ describe('PublicShareController', () => {
         file: fileWithNoMime as any,
       });
 
-      await controller.downloadPublicFile('token-456', mockResponse);
+      await controller.downloadPublicFile(
+        'token-456',
+        { ip: '127.0.0.1' } as any,
+        mockResponse,
+        undefined,
+      );
 
       expect(mockResponse.set).toHaveBeenCalledWith(
         expect.objectContaining({
           'Content-Type': 'application/octet-stream',
         }),
       );
+    });
+
+    it('should forward password header to fileService.downloadPublicFile', async () => {
+      const fileData = Buffer.from('secure file');
+      fileService.downloadPublicFile.mockResolvedValue({
+        data: fileData,
+        file: mockFile as any,
+      });
+
+      await controller.downloadPublicFile(
+        'abc123',
+        { ip: '127.0.0.1' } as any,
+        mockResponse,
+        'pass123',
+      );
+
+      expect(fileService.downloadPublicFile).toHaveBeenCalledWith(
+        'abc123',
+        'pass123',
+      );
+      expect(mockResponse.send).toHaveBeenCalledWith(fileData);
     });
   });
 });

@@ -1,8 +1,10 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Req, Res } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'fs';
+import { Request, Response } from 'express';
 
 interface HealthCheck {
   status: 'healthy' | 'unhealthy';
@@ -31,6 +33,7 @@ interface MemoryCheck {
 }
 
 @Controller('health')
+@SkipThrottle()
 export class HealthController {
   private storagePath: string;
   private startTime: number;
@@ -84,6 +87,59 @@ export class HealthController {
     } catch {
       return { status: 'error', ready: false };
     }
+  }
+
+  @Get('metrics')
+  async metrics(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const metricsApiKey = this.configService.get<string>('METRICS_API_KEY');
+    const suppliedKey = req.headers['x-metrics-key'];
+    const keyHeader =
+      typeof suppliedKey === 'string' ? suppliedKey : suppliedKey?.[0];
+
+    const rawAllowlist = this.configService.get<string>('METRICS_IP_ALLOWLIST');
+    const allowedIps = (rawAllowlist || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    const ipAllowed = allowedIps.length === 0 || allowedIps.includes(req.ip);
+    const keyAllowed = Boolean(metricsApiKey) && keyHeader === metricsApiKey;
+
+    if (!ipAllowed || !keyAllowed) {
+      res.status(HttpStatus.FORBIDDEN).json({
+        statusCode: HttpStatus.FORBIDDEN,
+        message: 'Forbidden',
+      });
+      return;
+    }
+
+    const memUsage = process.memoryUsage();
+    const uptimeSeconds = Math.floor((Date.now() - this.startTime) / 1000);
+    const [dbStatus, storageStatus] = await Promise.all([
+      this.checkDatabase(),
+      this.checkStorage(),
+    ]);
+
+    const metrics = [
+      '# HELP zynqcloud_uptime_seconds Process uptime in seconds',
+      '# TYPE zynqcloud_uptime_seconds gauge',
+      `zynqcloud_uptime_seconds ${uptimeSeconds}`,
+      '# HELP zynqcloud_memory_rss_bytes Resident set size in bytes',
+      '# TYPE zynqcloud_memory_rss_bytes gauge',
+      `zynqcloud_memory_rss_bytes ${memUsage.rss}`,
+      '# HELP zynqcloud_memory_heap_used_bytes Heap used in bytes',
+      '# TYPE zynqcloud_memory_heap_used_bytes gauge',
+      `zynqcloud_memory_heap_used_bytes ${memUsage.heapUsed}`,
+      '# HELP zynqcloud_database_up Database health status (1=up, 0=down)',
+      '# TYPE zynqcloud_database_up gauge',
+      `zynqcloud_database_up ${dbStatus.status === 'up' ? 1 : 0}`,
+      '# HELP zynqcloud_storage_up Storage health status (1=up, 0=down)',
+      '# TYPE zynqcloud_storage_up gauge',
+      `zynqcloud_storage_up ${storageStatus.status === 'up' ? 1 : 0}`,
+    ].join('\n');
+
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+    res.send(`${metrics}\n`);
   }
 
   private async checkDatabase(): Promise<HealthCheckResult> {

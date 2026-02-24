@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { promises as fs } from 'fs';
 import { FileController } from './file.controller';
 import { FileService } from '../file.service';
 import { UserRole } from '../../user/entities/user.entity';
@@ -241,10 +242,19 @@ describe('FileController', () => {
   });
 
   describe('uploadFileContent', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('should delegate to fileService.uploadFileContent', async () => {
+      const fileData = Buffer.from('file content');
       const mockMulterFile = {
-        buffer: Buffer.from('file content'),
+        path: '/tmp/uploaded-file',
       } as Express.Multer.File;
+      const readFileSpy = jest
+        .spyOn(fs, 'readFile')
+        .mockResolvedValue(fileData);
+      const unlinkSpy = jest.spyOn(fs, 'unlink').mockResolvedValue(undefined);
       fileService.uploadFileContent.mockResolvedValue(mockFile as any);
 
       await controller.uploadFileContent(
@@ -256,8 +266,10 @@ describe('FileController', () => {
       expect(fileService.uploadFileContent).toHaveBeenCalledWith(
         'file-123',
         'user-123',
-        mockMulterFile.buffer,
+        fileData,
       );
+      expect(readFileSpy).toHaveBeenCalledWith('/tmp/uploaded-file');
+      expect(unlinkSpy).toHaveBeenCalledWith('/tmp/uploaded-file');
     });
 
     it('should return error if no file provided', async () => {
@@ -268,6 +280,16 @@ describe('FileController', () => {
       );
 
       expect(result).toEqual({ error: 'No file provided' });
+    });
+
+    it('should return error if uploaded file path is missing', async () => {
+      const result = await controller.uploadFileContent(
+        mockUser as any,
+        'file-123',
+        {} as Express.Multer.File,
+      );
+
+      expect(result).toEqual({ error: 'Uploaded file path not found' });
     });
   });
 
@@ -331,17 +353,78 @@ describe('FileController', () => {
   });
 
   describe('share', () => {
+    const originalTrustProxy = process.env.TRUST_PROXY;
+    const originalFrontendUrl = process.env.FRONTEND_URL;
+    const originalAllowedOrigins = process.env.ALLOWED_ORIGINS;
+
+    afterEach(() => {
+      process.env.TRUST_PROXY = originalTrustProxy;
+      process.env.FRONTEND_URL = originalFrontendUrl;
+      process.env.ALLOWED_ORIGINS = originalAllowedOrigins;
+    });
+
     it('should delegate to fileService.share', () => {
+      delete process.env.FRONTEND_URL;
+      delete process.env.ALLOWED_ORIGINS;
       const shareDto = { type: 'public' };
       const shareResult = { token: 'share-token' };
       fileService.share.mockResolvedValue(shareResult as any);
+      const req = {
+        headers: { host: '192.168.1.10:3000' },
+        protocol: 'http',
+      } as any;
 
-      controller.share(mockUser as any, 'file-123', shareDto as any);
+      controller.share(mockUser as any, 'file-123', shareDto as any, req);
 
       expect(fileService.share).toHaveBeenCalledWith(
         'file-123',
         'user-123',
         shareDto,
+        'http://192.168.1.10:3000',
+      );
+    });
+
+    it('should prefer x-forwarded-host when present', () => {
+      process.env.TRUST_PROXY = 'true';
+      delete process.env.FRONTEND_URL;
+      delete process.env.ALLOWED_ORIGINS;
+      const shareDto = { type: 'public' };
+      fileService.share.mockResolvedValue({ token: 'share-token' } as any);
+      const req = {
+        headers: {
+          'x-forwarded-host': 'proxy.example:80',
+          host: 'ignored:3000',
+        },
+        protocol: 'https',
+      } as any;
+
+      controller.share(mockUser as any, 'file-123', shareDto as any, req);
+
+      expect(fileService.share).toHaveBeenCalledWith(
+        'file-123',
+        'user-123',
+        shareDto,
+        'https://proxy.example:80',
+      );
+    });
+
+    it('should pass undefined origin when host headers are missing', () => {
+      delete process.env.FRONTEND_URL;
+      delete process.env.ALLOWED_ORIGINS;
+      const shareDto = { type: 'public' };
+      fileService.share.mockResolvedValue({ token: 'share-token' } as any);
+      const req = {
+        headers: {},
+        protocol: 'https',
+      } as any;
+
+      controller.share(mockUser as any, 'file-123', shareDto as any, req);
+
+      expect(fileService.share).toHaveBeenCalledWith(
+        'file-123',
+        'user-123',
+        shareDto,
+        undefined,
       );
     });
   });

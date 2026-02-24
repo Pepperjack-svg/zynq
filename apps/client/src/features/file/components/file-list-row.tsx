@@ -101,7 +101,7 @@ export function FileListRow({
   return (
     <div
       className={cn(
-        'group flex items-center gap-2 px-4 py-0 h-11 cursor-pointer transition-colors duration-100',
+        'group flex h-12 cursor-pointer items-center gap-3 px-5 py-0 transition-colors duration-100',
         'hover:bg-muted/40',
         isSelected && 'bg-primary/5 hover:bg-primary/8',
       )}
@@ -147,25 +147,25 @@ export function FileListRow({
       </div>
 
       {/* Size */}
-      <div className="hidden sm:block w-28 shrink-0 text-right text-xs text-muted-foreground">
+      <div className="hidden sm:block w-24 shrink-0 text-right text-xs text-muted-foreground lg:w-28">
         {formatBytes(Number(file.size || 0))}
       </div>
 
       {/* Modified */}
-      <div className="hidden md:block w-36 shrink-0 text-right text-xs text-muted-foreground">
+      <div className="hidden md:block w-32 shrink-0 text-right text-xs text-muted-foreground lg:w-36">
         {file.updated_at ? formatDate(file.updated_at) : '—'}
       </div>
 
-      {/* Actions — visible on hover */}
+      {/* Actions — always visible */}
       <div
-        className="w-20 shrink-0 flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="flex w-28 shrink-0 items-center justify-end gap-1.5"
         onClick={(e) => e.stopPropagation()}
       >
         {!file.is_folder && onPreview && (
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
             onClick={() => onPreview(file)}
             title="Preview"
           >
@@ -175,7 +175,7 @@ export function FileListRow({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground"
           onClick={() => onShareUser(file.id)}
           title="Share"
         >
@@ -186,7 +186,7 @@ export function FileListRow({
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </Button>

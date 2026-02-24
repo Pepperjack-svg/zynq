@@ -120,9 +120,9 @@ export function FileCard({
         </div>
       )}
 
-      {/* Kebab menu — top-right, appears on hover */}
+      {/* Kebab menu — top-right, always visible */}
       <div
-        className="absolute top-1 right-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-1 right-1 z-10"
         onClick={(e) => e.stopPropagation()}
       >
         <DropdownMenu>
@@ -188,9 +188,9 @@ export function FileCard({
         </DropdownMenu>
       </div>
 
-      {/* Shared dot — top-right, hidden when kebab is visible */}
+      {/* Shared dot indicator */}
       {isShared && (
-        <div className="absolute top-1.5 right-1.5 z-10 h-2 w-2 rounded-full bg-blue-400 group-hover:hidden" />
+        <div className="absolute top-2 right-8 z-10 h-2 w-2 rounded-full bg-blue-400" />
       )}
 
       {/* Large centered icon */}

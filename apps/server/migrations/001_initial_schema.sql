@@ -107,6 +107,7 @@ CREATE INDEX idx_files_file_hash ON files(file_hash) WHERE file_hash IS NOT NULL
 CREATE INDEX idx_shares_file_id ON shares(file_id);
 CREATE INDEX idx_shares_grantee_user_id ON shares(grantee_user_id);
 CREATE INDEX idx_shares_share_token ON shares(share_token);
+CREATE INDEX idx_shares_created_by_is_public ON shares(created_by, is_public);
 CREATE INDEX idx_invitations_token ON invitations(token);
 CREATE INDEX idx_invitations_status ON invitations(status);
 CREATE INDEX idx_settings_user_id_key ON settings(user_id, key);

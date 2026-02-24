@@ -94,7 +94,10 @@ describe('AuthController', () => {
       };
       authService.register.mockResolvedValue(mockUser as any);
       authService.generateJwtToken.mockReturnValue('mock-jwt-token');
-      configService.get.mockReturnValue('development');
+      configService.get.mockImplementation((key: string) => {
+        if (key === 'NODE_ENV') return 'development';
+        return undefined;
+      });
 
       const result = await controller.register(registerDto, mockResponse);
 
@@ -106,10 +109,10 @@ describe('AuthController', () => {
         expect.objectContaining({
           httpOnly: true,
           sameSite: 'strict',
+          path: '/',
         }),
       );
       expect(result).not.toHaveProperty('password_hash');
-      expect(result).toHaveProperty('token', 'mock-jwt-token');
       expect(result).toHaveProperty('email', 'test@example.com');
     });
   });
@@ -119,7 +122,10 @@ describe('AuthController', () => {
       const loginDto = { email: 'test@example.com', password: 'Password1!' };
       authService.login.mockResolvedValue(mockUser as any);
       authService.generateJwtToken.mockReturnValue('mock-jwt-token');
-      configService.get.mockReturnValue('development');
+      configService.get.mockImplementation((key: string) => {
+        if (key === 'NODE_ENV') return 'development';
+        return undefined;
+      });
 
       const result = await controller.login(loginDto, mockResponse);
 
@@ -131,10 +137,11 @@ describe('AuthController', () => {
         expect.objectContaining({
           httpOnly: true,
           sameSite: 'strict',
+          path: '/',
         }),
       );
       expect(result).not.toHaveProperty('password_hash');
-      expect(result).toHaveProperty('token', 'mock-jwt-token');
+      expect(result).toHaveProperty('email', 'test@example.com');
     });
   });
 
@@ -176,11 +183,21 @@ describe('AuthController', () => {
 
   describe('logout', () => {
     it('should clear jid cookie and return success', () => {
+      configService.get.mockImplementation((key: string) => {
+        if (key === 'NODE_ENV') return 'production';
+        if (key === 'COOKIE_DOMAIN') return undefined;
+        return undefined;
+      });
       const result = controller.logout(mockResponse);
 
       expect(mockResponse.clearCookie).toHaveBeenCalledWith(
         'jid',
-        expect.objectContaining({ httpOnly: true }),
+        expect.objectContaining({
+          httpOnly: true,
+          path: '/',
+          sameSite: 'strict',
+          secure: true,
+        }),
       );
       expect(result).toEqual({ success: true });
     });

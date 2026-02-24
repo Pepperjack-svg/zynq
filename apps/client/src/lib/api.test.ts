@@ -10,7 +10,6 @@ describe('API Client', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     globalThis.fetch = mockFetch;
-    (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -39,10 +38,7 @@ describe('API Client', () => {
   });
 
   describe('fetchApi (tested via authApi)', () => {
-    it('adds Authorization header from localStorage token', async () => {
-      (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(
-        'my-token',
-      );
+    it('does not add Authorization header', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
@@ -53,21 +49,6 @@ describe('API Client', () => {
       await authApi.me();
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
-      const [, options] = mockFetch.mock.calls[0];
-      expect(options.headers['Authorization']).toBe('Bearer my-token');
-    });
-
-    it('does not add Authorization header when no token', async () => {
-      (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(null);
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'Content-Length': '2' }),
-        text: () => Promise.resolve('{}'),
-      });
-
-      await authApi.me();
-
       const [, options] = mockFetch.mock.calls[0];
       expect(options.headers['Authorization']).toBeUndefined();
     });
@@ -195,7 +176,6 @@ describe('API Client', () => {
               name: 'Test',
               email: 'test@test.com',
               role: 'user',
-              token: 'abc',
             }),
           ),
       });
@@ -214,7 +194,6 @@ describe('API Client', () => {
       });
       expect(options.headers['Content-Type']).toBe('application/json');
       expect(result.id).toBe('1');
-      expect(result.token).toBe('abc');
     });
   });
 
@@ -229,9 +208,6 @@ describe('API Client', () => {
           'Content-Disposition': 'attachment; filename="report.pdf"',
         }),
       });
-      (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(
-        'token',
-      );
 
       const result = await fileApi.download('file-1');
       expect(result.fileName).toBe('report.pdf');
@@ -249,9 +225,6 @@ describe('API Client', () => {
             "attachment; filename*=UTF-8''t%C3%A9st%20file.pdf",
         }),
       });
-      (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(
-        'token',
-      );
 
       const result = await fileApi.download('file-2');
       expect(result.fileName).toBe('t\u00e9st file.pdf');
@@ -265,9 +238,6 @@ describe('API Client', () => {
         blob: () => Promise.resolve(mockBlob),
         headers: new Headers(),
       });
-      (localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(
-        'token',
-      );
 
       const result = await fileApi.download('file-3');
       expect(result.fileName).toBe('download');

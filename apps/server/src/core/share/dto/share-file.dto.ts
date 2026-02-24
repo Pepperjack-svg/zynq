@@ -1,5 +1,32 @@
-import { IsString, IsOptional, IsEnum, IsBoolean } from 'class-validator'; // ✅ Added IsBoolean
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsBoolean,
+  IsISO8601,
+  MaxLength,
+  MinLength,
+  Validate,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+} from 'class-validator';
 import { SharePermission } from '../entities/share.entity';
+
+@ValidatorConstraint({ name: 'isFutureIsoDate', async: false })
+class IsFutureIsoDateConstraint implements ValidatorConstraintInterface {
+  validate(value?: string): boolean {
+    if (!value) {
+      return true;
+    }
+
+    const timestamp = Date.parse(value);
+    return !Number.isNaN(timestamp) && timestamp > Date.now();
+  }
+
+  defaultMessage(): string {
+    return 'expiresAt must be a future date';
+  }
+}
 
 export class ShareFileDto {
   @IsOptional()
@@ -15,5 +42,16 @@ export class ShareFileDto {
 
   @IsOptional()
   @IsBoolean()
-  isPublic?: boolean; // ✅ Now valid
+  isPublic?: boolean;
+
+  @IsOptional()
+  @IsISO8601()
+  @Validate(IsFutureIsoDateConstraint)
+  expiresAt?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6)
+  @MaxLength(72)
+  password?: string;
 }

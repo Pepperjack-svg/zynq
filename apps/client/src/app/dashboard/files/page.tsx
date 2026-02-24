@@ -51,6 +51,7 @@ import {
 import {
   fileApi,
   userApi,
+  getApiBaseUrl,
   type FileMetadata,
   type ShareableUser,
   ApiError,
@@ -78,6 +79,9 @@ interface UploadProgress {
   id: string;
   fileName: string;
   progress: number;
+  loadedBytes?: number;
+  totalBytes?: number;
+  etaSeconds?: number;
   status:
     | 'queued'
     | 'uploading'
@@ -85,6 +89,11 @@ interface UploadProgress {
     | 'error'
     | 'checking'
     | 'duplicate';
+}
+
+interface UploadFailure {
+  fileName: string;
+  message: string;
 }
 
 let uploadIdCounter = 0;
@@ -110,6 +119,71 @@ function getSafeMimeType(file: File): string {
   if (KNOWN_MIME_PREFIXES.some((prefix) => type.startsWith(prefix)))
     return type;
   return 'application/octet-stream';
+}
+
+function getXhrErrorMessage(xhr: XMLHttpRequest): string {
+  const status = xhr.status;
+  const fallback =
+    status === 413
+      ? 'File is too large.'
+      : status >= 500
+        ? 'Server error during upload.'
+        : 'Upload failed.';
+
+  const raw = xhr.responseText?.trim();
+  if (!raw) return fallback;
+
+  try {
+    const parsed = JSON.parse(raw) as { message?: string | string[] };
+    if (Array.isArray(parsed.message)) return parsed.message.join(', ');
+    if (typeof parsed.message === 'string') return parsed.message;
+  } catch {
+    // Ignore non-JSON payloads (e.g. proxy HTML pages)
+  }
+
+  return fallback;
+}
+
+function getCurrentLocalDateTime(): string {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function validatePublicShareInputs(
+  password: string,
+  expiresAt: string,
+): {
+  passwordError: string;
+  expiresAtError: string;
+} {
+  const trimmedPassword = password.trim();
+  const passwordError =
+    trimmedPassword.length > 0 && trimmedPassword.length < 6
+      ? 'Password must be at least 6 characters.'
+      : '';
+
+  let expiresAtError = '';
+  if (expiresAt) {
+    const expiryDate = new Date(expiresAt);
+    const now = new Date();
+    const nowMinutePrecision = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      now.getHours(),
+      now.getMinutes(),
+      0,
+      0,
+    ).getTime();
+    if (Number.isNaN(expiryDate.getTime())) {
+      expiresAtError = 'Please enter a valid expiry date and time.';
+    } else if (expiryDate.getTime() < nowMinutePrecision) {
+      expiresAtError = 'Expiry must be in the future.';
+    }
+  }
+
+  return { passwordError, expiresAtError };
 }
 
 export default function FilesPage() {
@@ -149,7 +223,13 @@ export default function FilesPage() {
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState('');
   const [publicLink, setPublicLink] = useState<string | null>(null);
+  const [publicLinkFileName, setPublicLinkFileName] = useState<string | null>(
+    null,
+  );
   const [uploadQueue, setUploadQueue] = useState<UploadProgress[]>([]);
+  const uploadSpeedRef = useRef<
+    Map<string, { lastTs: number; lastLoaded: number; smoothedBps: number }>
+  >(new Map());
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [pendingDuplicates, setPendingDuplicates] = useState<DuplicateItem[]>(
     [],
@@ -184,10 +264,6 @@ export default function FilesPage() {
     open: boolean;
     file: FileMetadata | null;
   }>({ open: false, file: null });
-  const [shareTypeDialog, setShareTypeDialog] = useState<{
-    open: boolean;
-    file: FileMetadata | null;
-  }>({ open: false, file: null });
   const [shareUserDialog, setShareUserDialog] = useState<{
     open: boolean;
     file: FileMetadata | null;
@@ -198,6 +274,11 @@ export default function FilesPage() {
   const [sharePermission, setSharePermission] = useState<'read' | 'write'>(
     'read',
   );
+  const [publicSharePassword, setPublicSharePassword] = useState('');
+  const [publicShareExpiresAt, setPublicShareExpiresAt] = useState('');
+  const [publicSharePasswordError, setPublicSharePasswordError] = useState('');
+  const [publicShareExpiresAtError, setPublicShareExpiresAtError] =
+    useState('');
 
   // Drag & drop state
   const [isDragActive, setIsDragActive] = useState(false);
@@ -276,6 +357,7 @@ export default function FilesPage() {
   };
 
   const removeUploadProgress = (progressId: string) => {
+    uploadSpeedRef.current.delete(progressId);
     setUploadQueue((prev) => prev.filter((p) => p.id !== progressId));
   };
 
@@ -555,12 +637,10 @@ export default function FilesPage() {
     _contentType: string,
     progressId: string,
   ): Promise<void> => {
-    const apiBase =
-      process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+    const apiBase = getApiBaseUrl();
     const fullUrl = url.startsWith('http')
       ? url
       : `${apiBase}${url.replace(/^\/api\/v1/, '')}`;
-    const token = localStorage.getItem('token');
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -568,7 +648,44 @@ export default function FilesPage() {
       xhr.upload.addEventListener('progress', (event) => {
         if (event.lengthComputable) {
           const percent = Math.round((event.loaded / event.total) * 100);
-          updateUploadProgress(progressId, { progress: percent });
+          const now = performance.now();
+          const current = uploadSpeedRef.current.get(progressId);
+          const previousTs = current?.lastTs ?? now;
+          const previousLoaded = current?.lastLoaded ?? event.loaded;
+          const elapsedSeconds = (now - previousTs) / 1000;
+          const deltaBytes = event.loaded - previousLoaded;
+          const instantBps =
+            elapsedSeconds > 0 && deltaBytes > 0
+              ? deltaBytes / elapsedSeconds
+              : 0;
+          const smoothedBps = current
+            ? current.smoothedBps * 0.7 + instantBps * 0.3
+            : instantBps;
+          uploadSpeedRef.current.set(progressId, {
+            lastTs: now,
+            lastLoaded: event.loaded,
+            smoothedBps,
+          });
+
+          const remainingBytes = Math.max(0, event.total - event.loaded);
+          let etaSeconds =
+            smoothedBps > 0
+              ? Math.ceil(remainingBytes / smoothedBps)
+              : undefined;
+          if (
+            percent >= 95 &&
+            remainingBytes > 0 &&
+            (!etaSeconds || etaSeconds < 3)
+          ) {
+            etaSeconds = 3;
+          }
+
+          updateUploadProgress(progressId, {
+            progress: percent,
+            loadedBytes: event.loaded,
+            totalBytes: event.total,
+            etaSeconds,
+          });
         }
       });
 
@@ -578,11 +695,21 @@ export default function FilesPage() {
             updateUploadProgress(progressId, {
               progress: 100,
               status: 'completed',
+              etaSeconds: 0,
             });
+            uploadSpeedRef.current.delete(progressId);
             resolve();
           } else {
             updateUploadProgress(progressId, { status: 'error' });
-            reject(new Error(`Upload failed with status ${xhr.status}`));
+            uploadSpeedRef.current.delete(progressId);
+            reject(
+              new ApiError(
+                getXhrErrorMessage(xhr),
+                xhr.status || 0,
+                'UPLOAD_FAILED',
+                { responseText: xhr.responseText },
+              ),
+            );
           }
         }
       });
@@ -591,9 +718,7 @@ export default function FilesPage() {
       formData.append('file', file);
 
       xhr.open('PUT', fullUrl);
-      if (token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      }
+      xhr.withCredentials = true;
       xhr.send(formData);
     });
   };
@@ -684,6 +809,7 @@ export default function FilesPage() {
       );
       let uploaded = 0;
       let errors = 0;
+      const failures: UploadFailure[] = [];
 
       const uploadTasks = readyToUpload.map((entry, i) => ({
         ...entry,
@@ -702,9 +828,16 @@ export default function FilesPage() {
               parentId,
             );
             uploaded++;
-          } catch {
+          } catch (err) {
             errors++;
             updateUploadProgress(progressId, { status: 'error' });
+            failures.push({
+              fileName: file.name,
+              message:
+                err instanceof ApiError
+                  ? err.message
+                  : 'Unable to upload this file.',
+            });
           }
         },
         3,
@@ -717,9 +850,12 @@ export default function FilesPage() {
         const parts: string[] = [];
         if (uploaded > 0) parts.push(`${uploaded} uploaded`);
         if (errors > 0) parts.push(`${errors} failed`);
+        const firstFailure = failures[0];
         toast({
           title: 'Upload complete',
-          description: parts.join(', ') + '.',
+          description: firstFailure
+            ? `${parts.join(', ')}. ${firstFailure.fileName}: ${firstFailure.message}`
+            : parts.join(', ') + '.',
           variant: errors > 0 && uploaded === 0 ? 'destructive' : undefined,
         });
       }
@@ -814,6 +950,7 @@ export default function FilesPage() {
     const progressIds = items.map((item) => addUploadProgress(item.file.name));
     let uploaded = 0;
     let errors = 0;
+    const failures: UploadFailure[] = [];
 
     const tasks = items.map((item, i) => ({
       ...item,
@@ -834,6 +971,7 @@ export default function FilesPage() {
               : 'Unable to upload this file.';
           console.error(`Failed to upload ${file.name}:`, errorMessage);
           updateUploadProgress(progressId, { status: 'error' });
+          failures.push({ fileName: file.name, message: errorMessage });
         }
       },
       3,
@@ -848,7 +986,7 @@ export default function FilesPage() {
       description:
         uploaded === count
           ? `${uploaded} file${uploaded > 1 ? 's' : ''} uploaded.`
-          : `${uploaded} uploaded, ${errors} failed.`,
+          : `${uploaded} uploaded, ${errors} failed.${failures[0] ? ` ${failures[0].fileName}: ${failures[0].message}` : ''}`,
       variant: errors > 0 && uploaded === 0 ? 'destructive' : undefined,
     });
 
@@ -1033,7 +1171,33 @@ export default function FilesPage() {
 
   const handlePublicShare = (fileId: string) => {
     const file = files.find((f) => f.id === fileId);
-    if (file) setShareConfirm({ open: true, file });
+    if (file) {
+      setPublicSharePassword('');
+      setPublicShareExpiresAt('');
+      setPublicSharePasswordError('');
+      setPublicShareExpiresAtError('');
+      setShareConfirm({ open: true, file });
+    }
+  };
+
+  const handlePublicSharePasswordChange = (value: string) => {
+    setPublicSharePassword(value);
+    const { passwordError, expiresAtError } = validatePublicShareInputs(
+      value,
+      publicShareExpiresAt,
+    );
+    setPublicSharePasswordError(passwordError);
+    setPublicShareExpiresAtError(expiresAtError);
+  };
+
+  const handlePublicShareExpiresAtChange = (value: string) => {
+    setPublicShareExpiresAt(value);
+    const { passwordError, expiresAtError } = validatePublicShareInputs(
+      publicSharePassword,
+      value,
+    );
+    setPublicSharePasswordError(passwordError);
+    setPublicShareExpiresAtError(expiresAtError);
   };
 
   const handleRenameOpen = (id: string) => {
@@ -1061,12 +1225,6 @@ export default function FilesPage() {
     setPreviewFile(file);
   };
 
-  const handleShareType = (fileId: string) => {
-    const file = files.find((f) => f.id === fileId);
-    if (!file) return;
-    setShareTypeDialog({ open: true, file });
-  };
-
   const handleShareWithUser = async (fileId: string) => {
     const file = files.find((f) => f.id === fileId);
     if (!file) return;
@@ -1091,16 +1249,33 @@ export default function FilesPage() {
 
   const confirmShare = async () => {
     const fileId = shareConfirm.file?.id ?? null;
+    const fileName = shareConfirm.file?.name || null;
+    const { passwordError, expiresAtError } = validatePublicShareInputs(
+      publicSharePassword,
+      publicShareExpiresAt,
+    );
+    setPublicSharePasswordError(passwordError);
+    setPublicShareExpiresAtError(expiresAtError);
+    if (passwordError || expiresAtError) return;
+
     setShareConfirm({ open: false, file: null });
     if (!fileId) return;
+
+    const expiresAtIso = publicShareExpiresAt
+      ? new Date(publicShareExpiresAt).toISOString()
+      : undefined;
+    const password = publicSharePassword.trim() || undefined;
 
     try {
       const res = await fileApi.share(fileId, {
         permission: 'read',
         isPublic: true,
+        expiresAt: expiresAtIso,
+        password,
       });
       if (res.publicLink) {
         setPublicLink(res.publicLink);
+        setPublicLinkFileName(fileName);
         loadFiles();
       } else {
         toast({
@@ -1354,6 +1529,19 @@ export default function FilesPage() {
             activeUploads.length,
         )
       : 100;
+  const aggregateEtaSeconds = (() => {
+    const uploadingWithEta = activeUploads.filter(
+      (u) => u.status === 'uploading' && typeof u.etaSeconds === 'number',
+    );
+    if (uploadingWithEta.length === 0) return undefined;
+    return Math.max(
+      ...uploadingWithEta.map((u) => Math.max(0, Math.ceil(u.etaSeconds ?? 0))),
+    );
+  })();
+
+  const currentLocalDateTime = getCurrentLocalDateTime();
+  const isPublicShareValid =
+    !publicSharePasswordError && !publicShareExpiresAtError;
 
   return (
     <>
@@ -1457,6 +1645,11 @@ export default function FilesPage() {
                   {activeUploads.length > 1
                     ? ` ${activeUploads.length} files`
                     : ''}
+                  {aggregateEtaSeconds !== undefined && aggregateEtaSeconds > 0
+                    ? ` • ${aggregateEtaSeconds}s left`
+                    : aggregateProgress >= 95
+                      ? ' • a few seconds left'
+                      : ''}
                   …
                 </span>
                 <Progress
@@ -1530,7 +1723,7 @@ export default function FilesPage() {
           loading={loading}
           onOpenFolder={handleOpenFolder}
           onDelete={handleDelete}
-          onShareUser={handleShareType}
+          onShareUser={handleShareWithUser}
           onSharePublic={handlePublicShare}
           onRename={handleRenameOpen}
           onPreview={handlePreview}
@@ -1579,7 +1772,11 @@ export default function FilesPage() {
 
         <PublicLinkDialog
           publicLink={publicLink}
-          onClose={() => setPublicLink(null)}
+          fileName={publicLinkFileName ?? undefined}
+          onClose={() => {
+            setPublicLink(null);
+            setPublicLinkFileName(null);
+          }}
         />
 
         <DuplicateWarningDialog
@@ -1695,7 +1892,7 @@ export default function FilesPage() {
             setShareConfirm((prev) => ({ ...prev, open }))
           }
         >
-          <AlertDialogContent>
+          <AlertDialogContent className="w-[95vw] max-w-lg">
             <AlertDialogHeader>
               <AlertDialogTitle>Create Public Link?</AlertDialogTitle>
               <AlertDialogDescription asChild>
@@ -1705,7 +1902,7 @@ export default function FilesPage() {
                     {shareConfirm.file?.is_folder ? 'folder' : 'file'}:
                   </p>
                   {shareConfirm.file && (
-                    <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border overflow-hidden">
+                    <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border overflow-hidden">
                       <div className="shrink-0">
                         {shareConfirm.file.is_folder ? (
                           <Folder className="h-8 w-8 text-amber-500" />
@@ -1715,12 +1912,12 @@ export default function FilesPage() {
                       </div>
                       <div className="min-w-0 overflow-hidden">
                         <p
-                          className="font-medium text-sm text-foreground truncate"
+                          className="font-medium text-sm text-foreground break-all"
                           title={shareConfirm.file.name}
                         >
                           {shareConfirm.file.name}
                         </p>
-                        <p className="text-xs text-muted-foreground truncate">
+                        <p className="text-xs text-muted-foreground break-all">
                           {shareConfirm.file.is_folder
                             ? 'Folder'
                             : formatBytes(Number(shareConfirm.file.size || 0))}
@@ -1731,56 +1928,60 @@ export default function FilesPage() {
                       </div>
                     </div>
                   )}
+
+                  <div className="space-y-2 pt-1">
+                    <Label htmlFor="public-share-password">
+                      Password (optional)
+                    </Label>
+                    <Input
+                      id="public-share-password"
+                      type="password"
+                      placeholder="Minimum 6 characters"
+                      value={publicSharePassword}
+                      onChange={(e) =>
+                        handlePublicSharePasswordChange(e.target.value)
+                      }
+                    />
+                    {publicSharePasswordError ? (
+                      <p className="text-xs text-destructive">
+                        {publicSharePasswordError}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="public-share-expires-at">
+                      Expiry (optional)
+                    </Label>
+                    <Input
+                      id="public-share-expires-at"
+                      type="datetime-local"
+                      value={publicShareExpiresAt}
+                      min={currentLocalDateTime}
+                      onChange={(e) =>
+                        handlePublicShareExpiresAtChange(e.target.value)
+                      }
+                    />
+                    {publicShareExpiresAtError ? (
+                      <p className="text-xs text-destructive">
+                        {publicShareExpiresAtError}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter>
+            <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmShare}>
+              <AlertDialogAction
+                onClick={confirmShare}
+                disabled={!isPublicShareValid}
+              >
                 Generate Link
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-        {/* Share Type Dialog */}
-        <Dialog
-          open={shareTypeDialog.open}
-          onOpenChange={(open) =>
-            setShareTypeDialog((prev) => ({ ...prev, open }))
-          }
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Share</DialogTitle>
-              <DialogDescription>
-                Choose how you want to share this{' '}
-                {shareTypeDialog.file?.is_folder ? 'folder' : 'file'}.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-3">
-              <Button
-                onClick={() => {
-                  const fileId = shareTypeDialog.file?.id;
-                  setShareTypeDialog({ open: false, file: null });
-                  if (fileId) handleShareWithUser(fileId);
-                }}
-              >
-                Share with user
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  const fileId = shareTypeDialog.file?.id;
-                  setShareTypeDialog({ open: false, file: null });
-                  if (fileId) handlePublicShare(fileId);
-                }}
-              >
-                Create public link
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
 
         <Dialog
           open={shareUserDialog.open}
@@ -1788,7 +1989,7 @@ export default function FilesPage() {
             setShareUserDialog((prev) => ({ ...prev, open }))
           }
         >
-          <DialogContent>
+          <DialogContent className="w-[95vw] max-w-lg">
             <DialogHeader>
               <DialogTitle>Share with user</DialogTitle>
               <DialogDescription>
@@ -1798,7 +1999,7 @@ export default function FilesPage() {
             </DialogHeader>
             <div className="space-y-4">
               {shareUserDialog.file && (
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border overflow-hidden">
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border overflow-hidden">
                   <div className="shrink-0">
                     {shareUserDialog.file.is_folder ? (
                       <Folder className="h-8 w-8 text-amber-500" />
@@ -1808,12 +2009,12 @@ export default function FilesPage() {
                   </div>
                   <div className="min-w-0 overflow-hidden">
                     <p
-                      className="font-medium text-sm text-foreground truncate"
+                      className="font-medium text-sm text-foreground break-all"
                       title={shareUserDialog.file.name}
                     >
                       {shareUserDialog.file.name}
                     </p>
-                    <p className="text-xs text-muted-foreground truncate">
+                    <p className="text-xs text-muted-foreground break-all">
                       {shareUserDialog.file.is_folder
                         ? 'Folder'
                         : formatBytes(Number(shareUserDialog.file.size || 0))}
@@ -1835,10 +2036,12 @@ export default function FilesPage() {
                       }
                     />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-w-[90vw]">
                     {shareUsers.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
-                        {u.name} ({u.email})
+                        <span className="block max-w-[70vw] sm:max-w-[320px] truncate">
+                          {u.name} ({u.email})
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
