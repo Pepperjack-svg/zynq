@@ -7,6 +7,7 @@ import { CoreModule } from './core/core.module';
 import { EmailModule } from './integrations/email/email.module';
 import { HealthModule } from './health/health.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
+import { CsrfProtectionMiddleware } from './common/middleware/csrf-protection.middleware';
 
 function validateEnv(config: Record<string, unknown>) {
   const requiredKeys = [
@@ -108,6 +109,6 @@ function validateEnv(config: Record<string, unknown>) {
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(LoggingMiddleware).forRoutes('*');
+    consumer.apply(LoggingMiddleware, CsrfProtectionMiddleware).forRoutes('*');
   }
 }

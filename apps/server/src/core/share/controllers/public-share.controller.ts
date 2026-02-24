@@ -31,8 +31,8 @@ export class PublicShareController {
 
   private cleanupAttemptState(key: string, now = Date.now()) {
     const failed = this.failedPasswordAttempts.get(key);
-    if (!failed?.blockedUntil || failed.blockedUntil <= now) {
-      this.failedPasswordAttempts.delete(key);
+    if (failed?.blockedUntil && failed.blockedUntil <= now) {
+      this.failedPasswordAttempts.set(key, { attempts: failed.attempts });
     }
 
     const windowState = this.passwordAttemptWindows.get(key);

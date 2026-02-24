@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { ForbiddenException, HttpException, HttpStatus } from '@nestjs/common';
 import { PublicShareController } from './public-share.controller';
 import { FileService } from '../../file/file.service';
 
@@ -95,6 +95,35 @@ describe('PublicShareController', () => {
       ).rejects.toMatchObject({
         status: HttpStatus.TOO_MANY_REQUESTS,
       } as Partial<HttpException>);
+    });
+
+    it('should apply exponential backoff for repeated forbidden password failures', async () => {
+      fileService.getPublicShare.mockRejectedValue(
+        new ForbiddenException('Invalid share password'),
+      );
+      const req = { ip: '127.0.0.1' } as any;
+      const nowSpy = jest.spyOn(Date, 'now');
+      let now = 1_700_000_000_000;
+      nowSpy.mockImplementation(() => {
+        now += 5_000;
+        return now;
+      });
+
+      await expect(
+        controller.getPublicShare('abc123', req, 'bad-pass-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        controller.getPublicShare('abc123', req, 'bad-pass-2'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        controller.getPublicShare('abc123', req, 'bad-pass-3'),
+      ).rejects.toMatchObject({
+        status: HttpStatus.TOO_MANY_REQUESTS,
+        message: expect.stringContaining('Retry in'),
+      });
+
+      expect(fileService.getPublicShare).toHaveBeenCalledTimes(3);
+      nowSpy.mockRestore();
     });
   });
 

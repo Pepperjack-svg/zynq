@@ -30,6 +30,8 @@ export function getApiBaseUrl(): string {
       if (configuredIsLocal && !currentIsLocal) {
         url.hostname = window.location.hostname;
         url.protocol = window.location.protocol;
+        const configuredPort = url.port;
+        url.port = configuredPort || window.location.port || '';
         return trimTrailingSlash(url.toString());
       }
 
@@ -113,7 +115,7 @@ export interface Share {
   share_token?: string | null;
   publicLink?: string | null;
   expires_at?: string | null;
-  password?: string | null;
+  hasPassword?: boolean;
 }
 
 export interface Invitation {

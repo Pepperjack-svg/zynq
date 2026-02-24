@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Download, X } from 'lucide-react';
 import { ApiError, publicApi } from '@/lib/api';
 import { getFileIcon, getIconColor } from '@/features/file/utils/file-icons';
+import { getPreviewType } from '@/features/file/utils/preview-type';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 
@@ -25,31 +26,13 @@ interface PublicSharePreviewDialogProps {
   onClose: () => void;
 }
 
-function getPreviewType(
-  mimeType: string,
-  name: string,
-): 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'none' {
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  if (mimeType === 'application/pdf') return 'pdf';
-  if (
-    mimeType.startsWith('text/') ||
-    ['txt', 'md', 'json', 'csv', 'xml', 'yaml', 'yml', 'log'].includes(
-      name.split('.').pop()?.toLowerCase() || '',
-    )
-  ) {
-    return 'text';
-  }
-  return 'none';
-}
-
 export function PublicSharePreviewDialog({
   token,
   password,
   file,
   onClose,
 }: PublicSharePreviewDialogProps) {
+  const previewMaxHeight = 'calc(96vh - 72px)';
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,15 +57,19 @@ export function PublicSharePreviewDialog({
         const { blob } = await publicApi.downloadShare(token, password);
         if (stale) return;
 
-        if (previewType === 'text') {
+        if (previewType === 'text' || previewType === 'code') {
           const text = await blob.text();
           if (!stale) setTextContent(text);
         } else {
           createdUrl = URL.createObjectURL(blob);
           if (!stale) setBlobUrl(createdUrl);
         }
-      } catch {
-        if (!stale) setError('Failed to load preview.');
+      } catch (err) {
+        if (!stale) {
+          setError(
+            err instanceof ApiError ? err.message : 'Failed to load preview.',
+          );
+        }
       } finally {
         if (!stale) setLoading(false);
       }
@@ -188,14 +175,14 @@ export function PublicSharePreviewDialog({
               src={blobUrl}
               alt={file.name}
               className="max-w-full max-h-full object-contain p-2"
-              style={{ maxHeight: 'calc(96vh - 72px)' }}
+              style={{ maxHeight: previewMaxHeight }}
             />
           ) : previewType === 'video' && blobUrl ? (
             <video
               src={blobUrl}
               controls
               className="max-w-full max-h-full p-2"
-              style={{ maxHeight: 'calc(96vh - 72px)' }}
+              style={{ maxHeight: previewMaxHeight }}
             />
           ) : previewType === 'audio' && blobUrl ? (
             <div className="py-8 px-4 w-full flex flex-col items-center gap-4">
@@ -208,12 +195,13 @@ export function PublicSharePreviewDialog({
               src={blobUrl}
               type="application/pdf"
               className="w-full"
-              style={{ height: 'calc(96vh - 72px)' }}
+              style={{ height: previewMaxHeight }}
             />
-          ) : previewType === 'text' && textContent !== null ? (
+          ) : (previewType === 'text' || previewType === 'code') &&
+            textContent !== null ? (
             <pre
               className="w-full overflow-auto p-4 text-xs font-mono leading-relaxed text-foreground whitespace-pre-wrap break-all"
-              style={{ maxHeight: 'calc(96vh - 72px)' }}
+              style={{ maxHeight: previewMaxHeight }}
             >
               {textContent}
             </pre>

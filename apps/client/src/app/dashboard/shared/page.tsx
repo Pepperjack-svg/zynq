@@ -326,7 +326,9 @@ export default function SharedPage() {
                                 variant="secondary"
                                 className="text-[10px]"
                               >
-                                {share.password ? 'Protected' : 'No password'}
+                                {share.hasPassword
+                                  ? 'Protected'
+                                  : 'No password'}
                               </Badge>
                               {expiryLabel ? (
                                 <Badge

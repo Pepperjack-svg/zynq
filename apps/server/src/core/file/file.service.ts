@@ -72,6 +72,14 @@ export class FileService {
     return { ownerId: file.owner_id, fileId: file.id };
   }
 
+  private getPublicBaseUrl(requestOrigin?: string): string {
+    return (
+      requestOrigin ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
+  }
+
   private async assertPublicShareAccess(
     share: Pick<Share, 'expires_at' | 'password'>,
     providedPassword?: string,
@@ -536,11 +544,7 @@ export class FileService {
       throw new BadRequestException('Cannot share with yourself');
     }
 
-    const publicBaseUrl = (
-      requestOrigin ||
-      process.env.FRONTEND_URL ||
-      'http://localhost:3000'
-    ).replace(/\/+$/, '');
+    const publicBaseUrl = this.getPublicBaseUrl(requestOrigin);
 
     if (shareDto.isPublic) {
       const existingPublicShare = await this.sharesRepository.findOne({
@@ -776,10 +780,19 @@ export class FileService {
     return { data, file };
   }
 
-  async getPublicSharesByUser(userId: string): Promise<Share[]> {
-    return this.sharesRepository.find({
+  async getPublicSharesByUser(
+    userId: string,
+  ): Promise<Array<Share & { hasPassword: boolean }>> {
+    const shares = await this.sharesRepository.find({
       where: { created_by: userId, is_public: true },
       relations: ['file'],
+    });
+    return shares.map((share) => {
+      const { password, ...rest } = share;
+      return {
+        ...rest,
+        hasPassword: Boolean(password),
+      };
     });
   }
 
@@ -821,11 +834,7 @@ export class FileService {
     }
 
     const saved = await this.sharesRepository.save(share);
-    const publicBaseUrl = (
-      requestOrigin ||
-      process.env.FRONTEND_URL ||
-      'http://localhost:3000'
-    ).replace(/\/+$/, '');
+    const publicBaseUrl = this.getPublicBaseUrl(requestOrigin);
 
     return {
       ...saved,
