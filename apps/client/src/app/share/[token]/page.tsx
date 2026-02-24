@@ -2,11 +2,13 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Loader2, Cloud, Download } from 'lucide-react';
+import { Loader2, Cloud, Download, Eye } from 'lucide-react';
 import { formatBytes } from '@/lib/auth';
-import { publicApi } from '@/lib/api';
+import { ApiError, publicApi } from '@/lib/api';
+import { PublicSharePreviewDialog } from '@/features/share/components/public-share-preview-dialog';
 import {
   getFileIcon,
   getIconColor,
@@ -31,9 +33,10 @@ export default function PublicSharePage() {
   const [file, setFile] = useState<SharedFile | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [textContent, setTextContent] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [sharePassword, setSharePassword] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [needsPassword, setNeedsPassword] = useState(false);
   const [error, setError] = useState('');
 
   const getPreviewType = (mimeType: string, name: string) => {
@@ -54,62 +57,49 @@ export default function PublicSharePage() {
 
   const previewType = file ? getPreviewType(file.mimeType, file.name) : 'none';
 
-  const fetchFile = useCallback(async () => {
-    try {
-      const data = await publicApi.getShare(token);
-      setFile(data);
-    } catch {
-      setError('This link is invalid or has expired.');
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+  const fetchFile = useCallback(
+    async (password?: string) => {
+      try {
+        const activePassword = password ?? sharePassword;
+        const data = await publicApi.getShare(
+          token,
+          activePassword || undefined,
+        );
+        setFile(data);
+        setNeedsPassword(false);
+        setError('');
+      } catch (err) {
+        if (err instanceof ApiError && err.statusCode === 403) {
+          setNeedsPassword(true);
+          setError('This share is password protected.');
+        } else if (err instanceof ApiError && err.statusCode === 429) {
+          setNeedsPassword(true);
+          setError(
+            err.message || 'Too many password attempts. Try again shortly.',
+          );
+        } else {
+          setError('This link is invalid or has expired.');
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [sharePassword, token],
+  );
 
   useEffect(() => {
     if (!token) return;
     fetchFile();
   }, [token, fetchFile]);
 
-  useEffect(() => {
-    let stale = false;
-    let url: string | null = null;
-
-    const loadPreview = async () => {
-      if (!file?.hasContent || previewType === 'none') return;
-      setPreviewLoading(true);
-      try {
-        const { blob } = await publicApi.downloadShare(token);
-        if (stale) return;
-
-        if (previewType === 'text') {
-          const text = await blob.text();
-          if (!stale) setTextContent(text);
-        } else {
-          url = URL.createObjectURL(blob);
-          if (!stale) setBlobUrl(url);
-        }
-      } catch {
-        // Keep download available even if preview fails.
-      } finally {
-        if (!stale) setPreviewLoading(false);
-      }
-    };
-
-    setBlobUrl(null);
-    setTextContent(null);
-    void loadPreview();
-
-    return () => {
-      stale = true;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [file?.id, file?.hasContent, previewType, token]);
-
   const handleDownload = async () => {
     if (!file?.hasContent) return;
     setDownloading(true);
     try {
-      const { blob, fileName } = await publicApi.downloadShare(token);
+      const { blob, fileName } = await publicApi.downloadShare(
+        token,
+        sharePassword || undefined,
+      );
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
@@ -118,11 +108,25 @@ export default function PublicSharePage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(blobUrl);
-    } catch {
-      setError('Download failed. Please try again.');
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 403) {
+        setNeedsPassword(true);
+        setError('Password required to download this file.');
+      } else {
+        setError('Download failed. Please try again.');
+      }
     } finally {
       setDownloading(false);
     }
+  };
+
+  const handleUnlock = async () => {
+    const trimmed = passwordInput.trim();
+    if (!trimmed) return;
+    setError('');
+    setSharePassword(trimmed);
+    setLoading(true);
+    await fetchFile(trimmed);
   };
 
   if (loading) {
@@ -133,7 +137,7 @@ export default function PublicSharePage() {
     );
   }
 
-  if (error) {
+  if (error && !needsPassword) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center text-center p-6 bg-gradient-to-br from-background to-primary/5">
         <Cloud className="h-10 w-10 text-primary mb-3" />
@@ -150,105 +154,111 @@ export default function PublicSharePage() {
           <h1 className="text-2xl font-bold text-center">zynqCloud Share</h1>
         </div>
 
-        <div className="flex flex-col items-center space-y-2 text-center">
-          {file &&
-            (() => {
-              const IconComponent = getFileIcon(
-                file.name,
-                file.mimeType,
-                file.isFolder,
-              );
-              const iconColor = getIconColor(
-                file.name,
-                file.mimeType,
-                file.isFolder,
-              );
-              const iconBgColor = getIconBgColor(
-                file.name,
-                file.mimeType,
-                file.isFolder,
-              );
-              return (
-                <div
-                  className={cn(
-                    'h-14 w-14 rounded-xl flex items-center justify-center',
-                    iconBgColor,
-                  )}
-                >
-                  <IconComponent className={cn('h-7 w-7', iconColor)} />
-                </div>
-              );
-            })()}
-          <p className="text-lg font-medium break-all max-w-full">
-            {file?.name}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {formatBytes(file?.size || 0)}
-          </p>
-          {file?.owner && (
-            <p className="text-xs text-muted-foreground">
-              Shared by {file.owner}
-            </p>
-          )}
-        </div>
-
-        {file?.hasContent && (
-          <div className="w-full rounded-lg border bg-muted/20 min-h-[280px] max-h-[60vh] overflow-auto flex items-center justify-center">
-            {previewLoading ? (
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            ) : previewType === 'image' && blobUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={blobUrl}
-                alt={file.name}
-                className="max-w-full max-h-[56vh] object-contain p-2"
+        {needsPassword && (
+          <div className="w-full max-w-md mx-auto space-y-2">
+            <p className="text-sm text-muted-foreground text-center">{error}</p>
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                placeholder="Enter share password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                className="border-2 border-primary/30 focus-visible:border-primary"
               />
-            ) : previewType === 'video' && blobUrl ? (
-              <video
-                src={blobUrl}
-                controls
-                className="max-w-full max-h-[56vh] p-2"
-              />
-            ) : previewType === 'audio' && blobUrl ? (
-              <div className="w-full p-6">
-                <audio src={blobUrl} controls className="w-full" />
-              </div>
-            ) : previewType === 'pdf' && blobUrl ? (
-              <embed
-                src={blobUrl}
-                type="application/pdf"
-                className="w-full min-h-[56vh]"
-              />
-            ) : previewType === 'text' && textContent !== null ? (
-              <pre className="w-full p-4 text-xs whitespace-pre-wrap break-words">
-                {textContent}
-              </pre>
-            ) : (
-              <p className="text-sm text-muted-foreground py-10">
-                Preview not available for this file type.
-              </p>
-            )}
+              <Button onClick={handleUnlock} disabled={!passwordInput.trim()}>
+                Unlock
+              </Button>
+            </div>
           </div>
         )}
 
-        <Button
-          size="lg"
-          className="w-full"
-          disabled={downloading}
-          onClick={handleDownload}
-        >
-          {downloading ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="mr-2 h-4 w-4" />
-          )}
-          {downloading ? 'Downloading...' : 'Download File'}
-        </Button>
+        {file && (
+          <>
+            <div className="flex flex-col items-center space-y-2 text-center rounded-xl border bg-background/50 p-4">
+              {(() => {
+                const IconComponent = getFileIcon(
+                  file.name,
+                  file.mimeType,
+                  file.isFolder,
+                );
+                const iconColor = getIconColor(
+                  file.name,
+                  file.mimeType,
+                  file.isFolder,
+                );
+                const iconBgColor = getIconBgColor(
+                  file.name,
+                  file.mimeType,
+                  file.isFolder,
+                );
+                return (
+                  <div
+                    className={cn(
+                      'h-14 w-14 rounded-xl flex items-center justify-center',
+                      iconBgColor,
+                    )}
+                  >
+                    <IconComponent className={cn('h-7 w-7', iconColor)} />
+                  </div>
+                );
+              })()}
+              <div className="flex items-center gap-2 max-w-full">
+                <p className="text-lg font-medium break-all max-w-full">
+                  {file.name}
+                </p>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {formatBytes(file.size)}
+              </p>
+              {file.owner && (
+                <p className="text-xs text-muted-foreground">
+                  Shared by {file.owner}
+                </p>
+              )}
+            </div>
 
-        <p className="text-xs text-muted-foreground mt-3">
+            {file.hasContent && previewType !== 'none' && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-2 border-primary/30 hover:border-primary"
+                onClick={() => setPreviewOpen(true)}
+                title="Show preview"
+              >
+                <span className="text-xs mr-1">Preview</span>
+                <Eye className="h-4 w-4" />
+              </Button>
+            )}
+
+            <Button
+              size="lg"
+              className="w-full"
+              disabled={downloading}
+              onClick={handleDownload}
+            >
+              {downloading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              {downloading ? 'Downloading...' : 'Download File'}
+            </Button>
+          </>
+        )}
+
+        <p className="text-center text-xs text-muted-foreground mt-3">
           Shared securely via <span className="font-semibold">zynqCloud</span>
         </p>
       </Card>
+
+      {previewOpen && file?.hasContent && (
+        <PublicSharePreviewDialog
+          token={token}
+          password={sharePassword || undefined}
+          file={file}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
     </div>
   );
 }
