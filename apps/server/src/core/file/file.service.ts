@@ -805,13 +805,13 @@ export class FileService {
     }
 
     if (updateDto.clearPassword) {
-      share.password = undefined;
+      share.password = null;
     } else if (updateDto.password) {
       share.password = await bcrypt.hash(updateDto.password, 12);
     }
 
     if (updateDto.clearExpiry) {
-      share.expires_at = undefined;
+      share.expires_at = null;
     } else if (updateDto.expiresAt) {
       share.expires_at = new Date(updateDto.expiresAt);
     }
