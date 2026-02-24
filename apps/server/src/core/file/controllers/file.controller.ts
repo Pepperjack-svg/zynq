@@ -30,7 +30,7 @@ import { File as FileEntity } from '../entities/file.entity';
 import * as archiver from 'archiver';
 import { getRequestOrigin } from '../../../common/utils/request-origin.util';
 
-const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024; // 100MB hard limit per upload request
+const MAX_UPLOAD_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB hard limit per upload request
 
 /**
  * File management endpoints: CRUD, upload, download, share, trash.

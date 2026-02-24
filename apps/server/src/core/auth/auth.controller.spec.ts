@@ -184,6 +184,7 @@ describe('AuthController', () => {
   describe('logout', () => {
     it('should clear jid cookie and return success', () => {
       configService.get.mockImplementation((key: string) => {
+        if (key === 'NODE_ENV') return 'production';
         if (key === 'COOKIE_DOMAIN') return undefined;
         return undefined;
       });
@@ -191,7 +192,11 @@ describe('AuthController', () => {
 
       expect(mockResponse.clearCookie).toHaveBeenCalledWith(
         'jid',
-        expect.objectContaining({ path: '/' }),
+        expect.objectContaining({
+          path: '/',
+          sameSite: 'strict',
+          secure: true,
+        }),
       );
       expect(result).toEqual({ success: true });
     });
