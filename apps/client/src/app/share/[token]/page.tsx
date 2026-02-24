@@ -4,9 +4,15 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Loader2, Cloud, Download, File } from 'lucide-react';
+import { Loader2, Cloud, Download } from 'lucide-react';
 import { formatBytes } from '@/lib/auth';
 import { publicApi } from '@/lib/api';
+import {
+  getFileIcon,
+  getIconColor,
+  getIconBgColor,
+} from '@/features/file/utils/file-icons';
+import { cn } from '@/lib/utils';
 
 interface SharedFile {
   id: string;
@@ -25,7 +31,28 @@ export default function PublicSharePage() {
   const [file, setFile] = useState<SharedFile | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [textContent, setTextContent] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  const getPreviewType = (mimeType: string, name: string) => {
+    if (mimeType.startsWith('image/')) return 'image' as const;
+    if (mimeType.startsWith('video/')) return 'video' as const;
+    if (mimeType.startsWith('audio/')) return 'audio' as const;
+    if (mimeType === 'application/pdf') return 'pdf' as const;
+    if (
+      mimeType.startsWith('text/') ||
+      ['txt', 'md', 'json', 'csv', 'xml', 'yaml', 'yml', 'log'].includes(
+        name.split('.').pop()?.toLowerCase() || '',
+      )
+    ) {
+      return 'text' as const;
+    }
+    return 'none' as const;
+  };
+
+  const previewType = file ? getPreviewType(file.mimeType, file.name) : 'none';
 
   const fetchFile = useCallback(async () => {
     try {
@@ -42,6 +69,41 @@ export default function PublicSharePage() {
     if (!token) return;
     fetchFile();
   }, [token, fetchFile]);
+
+  useEffect(() => {
+    let stale = false;
+    let url: string | null = null;
+
+    const loadPreview = async () => {
+      if (!file?.hasContent || previewType === 'none') return;
+      setPreviewLoading(true);
+      try {
+        const { blob } = await publicApi.downloadShare(token);
+        if (stale) return;
+
+        if (previewType === 'text') {
+          const text = await blob.text();
+          if (!stale) setTextContent(text);
+        } else {
+          url = URL.createObjectURL(blob);
+          if (!stale) setBlobUrl(url);
+        }
+      } catch {
+        // Keep download available even if preview fails.
+      } finally {
+        if (!stale) setPreviewLoading(false);
+      }
+    };
+
+    setBlobUrl(null);
+    setTextContent(null);
+    void loadPreview();
+
+    return () => {
+      stale = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [file?.id, file?.hasContent, previewType, token]);
 
   const handleDownload = async () => {
     if (!file?.hasContent) return;
@@ -82,14 +144,41 @@ export default function PublicSharePage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background to-primary/5 p-4">
-      <Card className="w-full max-w-md p-6 text-center space-y-6 shadow-lg border-2">
+      <Card className="w-full max-w-4xl p-6 space-y-6 shadow-lg border-2">
         <div className="flex flex-col items-center space-y-3">
           <Cloud className="h-10 w-10 text-primary" />
-          <h1 className="text-2xl font-bold">zynqCloud Share</h1>
+          <h1 className="text-2xl font-bold text-center">zynqCloud Share</h1>
         </div>
 
-        <div className="flex flex-col items-center space-y-2">
-          <File className="h-10 w-10 text-muted-foreground" />
+        <div className="flex flex-col items-center space-y-2 text-center">
+          {file &&
+            (() => {
+              const IconComponent = getFileIcon(
+                file.name,
+                file.mimeType,
+                file.isFolder,
+              );
+              const iconColor = getIconColor(
+                file.name,
+                file.mimeType,
+                file.isFolder,
+              );
+              const iconBgColor = getIconBgColor(
+                file.name,
+                file.mimeType,
+                file.isFolder,
+              );
+              return (
+                <div
+                  className={cn(
+                    'h-14 w-14 rounded-xl flex items-center justify-center',
+                    iconBgColor,
+                  )}
+                >
+                  <IconComponent className={cn('h-7 w-7', iconColor)} />
+                </div>
+              );
+            })()}
           <p className="text-lg font-medium break-all max-w-full">
             {file?.name}
           </p>
@@ -102,6 +191,45 @@ export default function PublicSharePage() {
             </p>
           )}
         </div>
+
+        {file?.hasContent && (
+          <div className="w-full rounded-lg border bg-muted/20 min-h-[280px] max-h-[60vh] overflow-auto flex items-center justify-center">
+            {previewLoading ? (
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            ) : previewType === 'image' && blobUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={blobUrl}
+                alt={file.name}
+                className="max-w-full max-h-[56vh] object-contain p-2"
+              />
+            ) : previewType === 'video' && blobUrl ? (
+              <video
+                src={blobUrl}
+                controls
+                className="max-w-full max-h-[56vh] p-2"
+              />
+            ) : previewType === 'audio' && blobUrl ? (
+              <div className="w-full p-6">
+                <audio src={blobUrl} controls className="w-full" />
+              </div>
+            ) : previewType === 'pdf' && blobUrl ? (
+              <embed
+                src={blobUrl}
+                type="application/pdf"
+                className="w-full min-h-[56vh]"
+              />
+            ) : previewType === 'text' && textContent !== null ? (
+              <pre className="w-full p-4 text-xs whitespace-pre-wrap break-words">
+                {textContent}
+              </pre>
+            ) : (
+              <p className="text-sm text-muted-foreground py-10">
+                Preview not available for this file type.
+              </p>
+            )}
+          </div>
+        )}
 
         <Button
           size="lg"

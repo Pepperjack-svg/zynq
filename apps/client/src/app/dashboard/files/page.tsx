@@ -149,6 +149,9 @@ export default function FilesPage() {
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState('');
   const [publicLink, setPublicLink] = useState<string | null>(null);
+  const [publicLinkFileName, setPublicLinkFileName] = useState<string | null>(
+    null,
+  );
   const [uploadQueue, setUploadQueue] = useState<UploadProgress[]>([]);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [pendingDuplicates, setPendingDuplicates] = useState<DuplicateItem[]>(
@@ -181,10 +184,6 @@ export default function FilesPage() {
 
   // Share confirmation state
   const [shareConfirm, setShareConfirm] = useState<{
-    open: boolean;
-    file: FileMetadata | null;
-  }>({ open: false, file: null });
-  const [shareTypeDialog, setShareTypeDialog] = useState<{
     open: boolean;
     file: FileMetadata | null;
   }>({ open: false, file: null });
@@ -1057,12 +1056,6 @@ export default function FilesPage() {
     setPreviewFile(file);
   };
 
-  const handleShareType = (fileId: string) => {
-    const file = files.find((f) => f.id === fileId);
-    if (!file) return;
-    setShareTypeDialog({ open: true, file });
-  };
-
   const handleShareWithUser = async (fileId: string) => {
     const file = files.find((f) => f.id === fileId);
     if (!file) return;
@@ -1097,6 +1090,7 @@ export default function FilesPage() {
       });
       if (res.publicLink) {
         setPublicLink(res.publicLink);
+        setPublicLinkFileName(shareConfirm.file?.name || null);
         loadFiles();
       } else {
         toast({
@@ -1526,7 +1520,7 @@ export default function FilesPage() {
           loading={loading}
           onOpenFolder={handleOpenFolder}
           onDelete={handleDelete}
-          onShareUser={handleShareType}
+          onShareUser={handleShareWithUser}
           onSharePublic={handlePublicShare}
           onRename={handleRenameOpen}
           onPreview={handlePreview}
@@ -1575,7 +1569,11 @@ export default function FilesPage() {
 
         <PublicLinkDialog
           publicLink={publicLink}
-          onClose={() => setPublicLink(null)}
+          fileName={publicLinkFileName}
+          onClose={() => {
+            setPublicLink(null);
+            setPublicLinkFileName(null);
+          }}
         />
 
         <DuplicateWarningDialog
@@ -1691,7 +1689,7 @@ export default function FilesPage() {
             setShareConfirm((prev) => ({ ...prev, open }))
           }
         >
-          <AlertDialogContent>
+          <AlertDialogContent className="w-[95vw] max-w-lg">
             <AlertDialogHeader>
               <AlertDialogTitle>Create Public Link?</AlertDialogTitle>
               <AlertDialogDescription asChild>
@@ -1701,7 +1699,7 @@ export default function FilesPage() {
                     {shareConfirm.file?.is_folder ? 'folder' : 'file'}:
                   </p>
                   {shareConfirm.file && (
-                    <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border overflow-hidden">
+                    <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border overflow-hidden">
                       <div className="shrink-0">
                         {shareConfirm.file.is_folder ? (
                           <Folder className="h-8 w-8 text-amber-500" />
@@ -1711,12 +1709,12 @@ export default function FilesPage() {
                       </div>
                       <div className="min-w-0 overflow-hidden">
                         <p
-                          className="font-medium text-sm text-foreground truncate"
+                          className="font-medium text-sm text-foreground break-all"
                           title={shareConfirm.file.name}
                         >
                           {shareConfirm.file.name}
                         </p>
-                        <p className="text-xs text-muted-foreground truncate">
+                        <p className="text-xs text-muted-foreground break-all">
                           {shareConfirm.file.is_folder
                             ? 'Folder'
                             : formatBytes(Number(shareConfirm.file.size || 0))}
@@ -1730,7 +1728,7 @@ export default function FilesPage() {
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter>
+            <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction onClick={confirmShare}>
                 Generate Link
@@ -1739,52 +1737,13 @@ export default function FilesPage() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Share Type Dialog */}
-        <Dialog
-          open={shareTypeDialog.open}
-          onOpenChange={(open) =>
-            setShareTypeDialog((prev) => ({ ...prev, open }))
-          }
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Share</DialogTitle>
-              <DialogDescription>
-                Choose how you want to share this{' '}
-                {shareTypeDialog.file?.is_folder ? 'folder' : 'file'}.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-3">
-              <Button
-                onClick={() => {
-                  const fileId = shareTypeDialog.file?.id;
-                  setShareTypeDialog({ open: false, file: null });
-                  if (fileId) handleShareWithUser(fileId);
-                }}
-              >
-                Share with user
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  const fileId = shareTypeDialog.file?.id;
-                  setShareTypeDialog({ open: false, file: null });
-                  if (fileId) handlePublicShare(fileId);
-                }}
-              >
-                Create public link
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-
         <Dialog
           open={shareUserDialog.open}
           onOpenChange={(open) =>
             setShareUserDialog((prev) => ({ ...prev, open }))
           }
         >
-          <DialogContent>
+          <DialogContent className="w-[95vw] max-w-lg">
             <DialogHeader>
               <DialogTitle>Share with user</DialogTitle>
               <DialogDescription>
@@ -1794,7 +1753,7 @@ export default function FilesPage() {
             </DialogHeader>
             <div className="space-y-4">
               {shareUserDialog.file && (
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border overflow-hidden">
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border overflow-hidden">
                   <div className="shrink-0">
                     {shareUserDialog.file.is_folder ? (
                       <Folder className="h-8 w-8 text-amber-500" />
@@ -1804,12 +1763,12 @@ export default function FilesPage() {
                   </div>
                   <div className="min-w-0 overflow-hidden">
                     <p
-                      className="font-medium text-sm text-foreground truncate"
+                      className="font-medium text-sm text-foreground break-all"
                       title={shareUserDialog.file.name}
                     >
                       {shareUserDialog.file.name}
                     </p>
-                    <p className="text-xs text-muted-foreground truncate">
+                    <p className="text-xs text-muted-foreground break-all">
                       {shareUserDialog.file.is_folder
                         ? 'Folder'
                         : formatBytes(Number(shareUserDialog.file.size || 0))}
@@ -1831,10 +1790,12 @@ export default function FilesPage() {
                       }
                     />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-w-[90vw]">
                     {shareUsers.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
-                        {u.name} ({u.email})
+                        <span className="block max-w-[70vw] sm:max-w-[320px] truncate">
+                          {u.name} ({u.email})
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
