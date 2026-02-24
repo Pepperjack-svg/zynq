@@ -230,7 +230,7 @@ export default function PublicSharePage() {
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full border-2 border-primary/30 hover:border-primary"
+                className="w-full border border-border/70 hover:border-primary/60"
                 onClick={() => setPreviewOpen(true)}
                 title="Show preview"
               >
