@@ -203,12 +203,16 @@ function getHttpStatusFallbackMessage(status: number): string {
 async function toApiError(response: Response): Promise<ApiError> {
   const fallback = getHttpStatusFallbackMessage(response.status);
   const contentType = (
-    response.headers.get('content-type') || ''
+    response.headers?.get?.('content-type') || ''
   ).toLowerCase();
-  const text = await response.text();
+  const text = typeof response.text === 'function' ? await response.text() : '';
+  const looksLikeJson = (() => {
+    const trimmed = text.trim();
+    return trimmed.startsWith('{') || trimmed.startsWith('[');
+  })();
 
   let errorData: unknown = {};
-  if (contentType.includes('application/json')) {
+  if (contentType.includes('application/json') || looksLikeJson) {
     try {
       errorData = JSON.parse(text) as unknown;
     } catch {
@@ -288,7 +292,7 @@ async function fetchApi<T>(
 
   if (
     response.status === 204 ||
-    response.headers.get('Content-Length') === '0'
+    response.headers?.get?.('Content-Length') === '0'
   ) {
     return {} as T;
   }

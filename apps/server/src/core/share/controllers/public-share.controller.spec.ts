@@ -106,7 +106,12 @@ describe('PublicShareController', () => {
         file: mockFile as any,
       });
 
-      await controller.downloadPublicFile('abc123', mockResponse, undefined);
+      await controller.downloadPublicFile(
+        'abc123',
+        { ip: '127.0.0.1' } as any,
+        mockResponse,
+        undefined,
+      );
 
       expect(fileService.downloadPublicFile).toHaveBeenCalledWith(
         'abc123',
@@ -129,7 +134,12 @@ describe('PublicShareController', () => {
         file: fileWithNoMime as any,
       });
 
-      await controller.downloadPublicFile('token-456', mockResponse, undefined);
+      await controller.downloadPublicFile(
+        'token-456',
+        { ip: '127.0.0.1' } as any,
+        mockResponse,
+        undefined,
+      );
 
       expect(mockResponse.set).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -145,7 +155,12 @@ describe('PublicShareController', () => {
         file: mockFile as any,
       });
 
-      await controller.downloadPublicFile('abc123', mockResponse, 'pass123');
+      await controller.downloadPublicFile(
+        'abc123',
+        { ip: '127.0.0.1' } as any,
+        mockResponse,
+        'pass123',
+      );
 
       expect(fileService.downloadPublicFile).toHaveBeenCalledWith(
         'abc123',

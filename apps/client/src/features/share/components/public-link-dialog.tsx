@@ -1,7 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -14,7 +13,7 @@ import { toast } from '@/hooks/use-toast';
 
 interface PublicLinkDialogProps {
   publicLink: string | null;
-  fileName?: string | null;
+  fileName?: string;
   onClose: () => void;
 }
 
@@ -25,8 +24,33 @@ export function PublicLinkDialog({
 }: PublicLinkDialogProps) {
   const handleCopy = async () => {
     if (publicLink) {
-      await navigator.clipboard.writeText(publicLink);
-      toast({ title: 'Copied to clipboard!' });
+      try {
+        await navigator.clipboard.writeText(publicLink);
+        toast({ title: 'Copied to clipboard!' });
+      } catch {
+        try {
+          const textarea = document.createElement('textarea');
+          textarea.value = publicLink;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'absolute';
+          textarea.style.left = '-9999px';
+          document.body.appendChild(textarea);
+          textarea.select();
+          const copied = document.execCommand('copy');
+          document.body.removeChild(textarea);
+          if (copied) {
+            toast({ title: 'Copied to clipboard!' });
+            return;
+          }
+        } catch {
+          // fall through to error toast
+        }
+        toast({
+          title: 'Copy failed',
+          description: 'Unable to copy link automatically.',
+          variant: 'destructive',
+        });
+      }
     }
   };
 
@@ -45,16 +69,15 @@ export function PublicLinkDialog({
           </p>
         ) : null}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-muted px-3 py-2 rounded-md">
-          <Input
-            value={publicLink || ''}
-            readOnly
-            className="text-sm font-mono break-all"
-          />
+          <div className="min-h-10 w-full rounded-md border bg-background px-3 py-2 text-sm font-mono break-words">
+            {publicLink || ''}
+          </div>
           <Button
             size="icon"
             variant="secondary"
             onClick={handleCopy}
             className="self-end sm:self-auto"
+            aria-label="Copy link"
           >
             <Copy className="h-4 w-4" />
           </Button>

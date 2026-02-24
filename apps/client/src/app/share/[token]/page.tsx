@@ -38,6 +38,10 @@ export default function PublicSharePage() {
   const [passwordInput, setPasswordInput] = useState('');
   const [needsPassword, setNeedsPassword] = useState(false);
   const [error, setError] = useState('');
+  const getShareWithPassword = publicApi.getShare as (
+    token: string,
+    password?: string,
+  ) => Promise<SharedFile>;
 
   const getPreviewType = (mimeType: string, name: string) => {
     if (mimeType.startsWith('image/')) return 'image' as const;
@@ -57,40 +61,39 @@ export default function PublicSharePage() {
 
   const previewType = file ? getPreviewType(file.mimeType, file.name) : 'none';
 
-  const fetchFile = useCallback(
-    async (password?: string) => {
-      try {
-        const activePassword = password ?? sharePassword;
-        const data = await publicApi.getShare(
-          token,
-          activePassword || undefined,
+  const fetchFile = useCallback(async () => {
+    setLoading(true);
+    setFile(null);
+    setError('');
+    setNeedsPassword(false);
+    try {
+      const data = await getShareWithPassword(
+        token,
+        sharePassword || undefined,
+      );
+      setFile(data);
+    } catch (err) {
+      setFile(null);
+      if (err instanceof ApiError && err.statusCode === 403) {
+        setNeedsPassword(true);
+        setError('This share is password protected.');
+      } else if (err instanceof ApiError && err.statusCode === 429) {
+        setNeedsPassword(true);
+        setError(
+          err.message || 'Too many password attempts. Try again shortly.',
         );
-        setFile(data);
-        setNeedsPassword(false);
-        setError('');
-      } catch (err) {
-        if (err instanceof ApiError && err.statusCode === 403) {
-          setNeedsPassword(true);
-          setError('This share is password protected.');
-        } else if (err instanceof ApiError && err.statusCode === 429) {
-          setNeedsPassword(true);
-          setError(
-            err.message || 'Too many password attempts. Try again shortly.',
-          );
-        } else {
-          setError('This link is invalid or has expired.');
-        }
-      } finally {
-        setLoading(false);
+      } else {
+        setError('This link is invalid or has expired.');
       }
-    },
-    [sharePassword, token],
-  );
+    } finally {
+      setLoading(false);
+    }
+  }, [getShareWithPassword, sharePassword, token]);
 
   useEffect(() => {
     if (!token) return;
-    fetchFile();
-  }, [token, fetchFile]);
+    void fetchFile();
+  }, [fetchFile, sharePassword, token]);
 
   const handleDownload = async () => {
     if (!file?.hasContent) return;
@@ -112,6 +115,9 @@ export default function PublicSharePage() {
       if (err instanceof ApiError && err.statusCode === 403) {
         setNeedsPassword(true);
         setError('Password required to download this file.');
+      } else if (err instanceof ApiError && err.statusCode === 429) {
+        setNeedsPassword(true);
+        setError('Too many requests - please try again later.');
       } else {
         setError('Download failed. Please try again.');
       }
@@ -120,13 +126,11 @@ export default function PublicSharePage() {
     }
   };
 
-  const handleUnlock = async () => {
+  const handleUnlock = () => {
     const trimmed = passwordInput.trim();
     if (!trimmed) return;
-    setError('');
+    setNeedsPassword(false);
     setSharePassword(trimmed);
-    setLoading(true);
-    await fetchFile(trimmed);
   };
 
   if (loading) {
@@ -163,6 +167,11 @@ export default function PublicSharePage() {
                 placeholder="Enter share password"
                 value={passwordInput}
                 onChange={(e) => setPasswordInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && passwordInput.trim()) {
+                    handleUnlock();
+                  }
+                }}
                 className="border-2 border-primary/30 focus-visible:border-primary"
               />
               <Button onClick={handleUnlock} disabled={!passwordInput.trim()}>

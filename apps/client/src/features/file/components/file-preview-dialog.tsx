@@ -86,6 +86,7 @@ function getPreviewType(
 }
 
 export function FilePreviewDialog({ file, onClose }: FilePreviewDialogProps) {
+  const previewMaxHeight = 'calc(96vh - 72px)';
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -225,14 +226,14 @@ export function FilePreviewDialog({ file, onClose }: FilePreviewDialogProps) {
               src={blobUrl}
               alt={file.name}
               className="max-w-full max-h-full object-contain p-2"
-              style={{ maxHeight: 'calc(96vh - 72px)' }}
+              style={{ maxHeight: previewMaxHeight }}
             />
           ) : previewType === 'video' && blobUrl ? (
             <video
               src={blobUrl}
               controls
               className="max-w-full max-h-full p-2"
-              style={{ maxHeight: 'calc(96vh - 72px)' }}
+              style={{ maxHeight: previewMaxHeight }}
             />
           ) : previewType === 'audio' && blobUrl ? (
             <div className="py-8 px-4 w-full flex flex-col items-center gap-4">
@@ -245,13 +246,13 @@ export function FilePreviewDialog({ file, onClose }: FilePreviewDialogProps) {
               src={blobUrl}
               type="application/pdf"
               className="w-full"
-              style={{ height: 'calc(96vh - 72px)' }}
+              style={{ height: previewMaxHeight }}
             />
           ) : (previewType === 'text' || previewType === 'code') &&
             textContent !== null ? (
             <pre
               className="w-full overflow-auto p-4 text-xs font-mono leading-relaxed text-foreground whitespace-pre-wrap break-all"
-              style={{ maxHeight: 'calc(96vh - 72px)' }}
+              style={{ maxHeight: previewMaxHeight }}
             >
               {textContent}
             </pre>

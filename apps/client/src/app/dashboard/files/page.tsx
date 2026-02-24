@@ -1692,7 +1692,7 @@ export default function FilesPage() {
 
         <PublicLinkDialog
           publicLink={publicLink}
-          fileName={publicLinkFileName}
+          fileName={publicLinkFileName ?? undefined}
           onClose={() => {
             setPublicLink(null);
             setPublicLinkFileName(null);

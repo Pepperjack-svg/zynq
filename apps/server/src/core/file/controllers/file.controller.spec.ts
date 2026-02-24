@@ -242,6 +242,10 @@ describe('FileController', () => {
   });
 
   describe('uploadFileContent', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('should delegate to fileService.uploadFileContent', async () => {
       const fileData = Buffer.from('file content');
       const mockMulterFile = {
