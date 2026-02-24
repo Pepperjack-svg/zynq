@@ -2,6 +2,7 @@
  * High-performance upload manager
  * Decouples upload logic from UI rendering for maximum throughput
  */
+import { getApiBaseUrl } from './api';
 
 export interface UploadTask {
   id: string;
@@ -293,4 +294,3 @@ class UploadManager {
 
 // Singleton instance
 export const uploadManager = new UploadManager();
-import { getApiBaseUrl } from './api';

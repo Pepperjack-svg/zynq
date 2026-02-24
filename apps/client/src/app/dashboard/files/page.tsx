@@ -144,6 +144,48 @@ function getXhrErrorMessage(xhr: XMLHttpRequest): string {
   return fallback;
 }
 
+function getCurrentLocalDateTime(): string {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function validatePublicShareInputs(
+  password: string,
+  expiresAt: string,
+): {
+  passwordError: string;
+  expiresAtError: string;
+} {
+  const trimmedPassword = password.trim();
+  const passwordError =
+    trimmedPassword.length > 0 && trimmedPassword.length < 6
+      ? 'Password must be at least 6 characters.'
+      : '';
+
+  let expiresAtError = '';
+  if (expiresAt) {
+    const expiryDate = new Date(expiresAt);
+    const now = new Date();
+    const nowMinutePrecision = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      now.getHours(),
+      now.getMinutes(),
+      0,
+      0,
+    ).getTime();
+    if (Number.isNaN(expiryDate.getTime())) {
+      expiresAtError = 'Please enter a valid expiry date and time.';
+    } else if (expiryDate.getTime() < nowMinutePrecision) {
+      expiresAtError = 'Expiry must be in the future.';
+    }
+  }
+
+  return { passwordError, expiresAtError };
+}
+
 export default function FilesPage() {
   const [files, setFiles] = useState<FileMetadata[]>([]);
   const [loading, setLoading] = useState(true);
@@ -234,6 +276,9 @@ export default function FilesPage() {
   );
   const [publicSharePassword, setPublicSharePassword] = useState('');
   const [publicShareExpiresAt, setPublicShareExpiresAt] = useState('');
+  const [publicSharePasswordError, setPublicSharePasswordError] = useState('');
+  const [publicShareExpiresAtError, setPublicShareExpiresAtError] =
+    useState('');
 
   // Drag & drop state
   const [isDragActive, setIsDragActive] = useState(false);
@@ -1129,8 +1174,30 @@ export default function FilesPage() {
     if (file) {
       setPublicSharePassword('');
       setPublicShareExpiresAt('');
+      setPublicSharePasswordError('');
+      setPublicShareExpiresAtError('');
       setShareConfirm({ open: true, file });
     }
+  };
+
+  const handlePublicSharePasswordChange = (value: string) => {
+    setPublicSharePassword(value);
+    const { passwordError, expiresAtError } = validatePublicShareInputs(
+      value,
+      publicShareExpiresAt,
+    );
+    setPublicSharePasswordError(passwordError);
+    setPublicShareExpiresAtError(expiresAtError);
+  };
+
+  const handlePublicShareExpiresAtChange = (value: string) => {
+    setPublicShareExpiresAt(value);
+    const { passwordError, expiresAtError } = validatePublicShareInputs(
+      publicSharePassword,
+      value,
+    );
+    setPublicSharePasswordError(passwordError);
+    setPublicShareExpiresAtError(expiresAtError);
   };
 
   const handleRenameOpen = (id: string) => {
@@ -1182,6 +1249,15 @@ export default function FilesPage() {
 
   const confirmShare = async () => {
     const fileId = shareConfirm.file?.id ?? null;
+    const fileName = shareConfirm.file?.name || null;
+    const { passwordError, expiresAtError } = validatePublicShareInputs(
+      publicSharePassword,
+      publicShareExpiresAt,
+    );
+    setPublicSharePasswordError(passwordError);
+    setPublicShareExpiresAtError(expiresAtError);
+    if (passwordError || expiresAtError) return;
+
     setShareConfirm({ open: false, file: null });
     if (!fileId) return;
 
@@ -1199,7 +1275,7 @@ export default function FilesPage() {
       });
       if (res.publicLink) {
         setPublicLink(res.publicLink);
-        setPublicLinkFileName(shareConfirm.file?.name || null);
+        setPublicLinkFileName(fileName);
         loadFiles();
       } else {
         toast({
@@ -1459,9 +1535,13 @@ export default function FilesPage() {
     );
     if (uploadingWithEta.length === 0) return undefined;
     return Math.max(
-      ...uploadingWithEta.map((u) => Math.max(0, Math.ceil(u.etaSeconds || 0))),
+      ...uploadingWithEta.map((u) => Math.max(0, Math.ceil(u.etaSeconds ?? 0))),
     );
   })();
+
+  const currentLocalDateTime = getCurrentLocalDateTime();
+  const isPublicShareValid =
+    !publicSharePasswordError && !publicShareExpiresAtError;
 
   return (
     <>
@@ -1858,8 +1938,15 @@ export default function FilesPage() {
                       type="password"
                       placeholder="Minimum 6 characters"
                       value={publicSharePassword}
-                      onChange={(e) => setPublicSharePassword(e.target.value)}
+                      onChange={(e) =>
+                        handlePublicSharePasswordChange(e.target.value)
+                      }
                     />
+                    {publicSharePasswordError ? (
+                      <p className="text-xs text-destructive">
+                        {publicSharePasswordError}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
@@ -1870,15 +1957,26 @@ export default function FilesPage() {
                       id="public-share-expires-at"
                       type="datetime-local"
                       value={publicShareExpiresAt}
-                      onChange={(e) => setPublicShareExpiresAt(e.target.value)}
+                      min={currentLocalDateTime}
+                      onChange={(e) =>
+                        handlePublicShareExpiresAtChange(e.target.value)
+                      }
                     />
+                    {publicShareExpiresAtError ? (
+                      <p className="text-xs text-destructive">
+                        {publicShareExpiresAtError}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmShare}>
+              <AlertDialogAction
+                onClick={confirmShare}
+                disabled={!isPublicShareValid}
+              >
                 Generate Link
               </AlertDialogAction>
             </AlertDialogFooter>
