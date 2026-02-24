@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, Not, In } from 'typeorm';
@@ -13,6 +14,7 @@ import { UserService } from '../user/user.service';
 import { CreateFileDto, BLOCKED_EXTENSIONS_REGEX } from './dto/create-file.dto';
 import { ShareFileDto } from '../share/dto/share-file.dto';
 import { randomBytes } from 'crypto';
+import * as bcrypt from 'bcrypt';
 
 // File types that support duplicate detection
 const DOCUMENT_EXTENSIONS = [
@@ -67,6 +69,28 @@ export class FileService {
       }
     }
     return { ownerId: file.owner_id, fileId: file.id };
+  }
+
+  private async assertPublicShareAccess(
+    share: Pick<Share, 'expires_at' | 'password'>,
+    providedPassword?: string,
+  ): Promise<void> {
+    if (share.expires_at && share.expires_at < new Date()) {
+      throw new NotFoundException('Public share not found');
+    }
+
+    if (share.password) {
+      if (!providedPassword) {
+        throw new ForbiddenException('Share password required');
+      }
+      const isValidPassword = await bcrypt.compare(
+        providedPassword,
+        share.password,
+      );
+      if (!isValidPassword) {
+        throw new ForbiddenException('Invalid share password');
+      }
+    }
   }
 
   private async hasActiveStorageReferences(
@@ -521,6 +545,11 @@ export class FileService {
       share_token: shareDto.isPublic
         ? randomBytes(16).toString('hex')
         : undefined,
+      expires_at: shareDto.expiresAt ? new Date(shareDto.expiresAt) : undefined,
+      password:
+        shareDto.isPublic && shareDto.password
+          ? await bcrypt.hash(shareDto.password, 12)
+          : undefined,
     });
 
     const saved = await this.sharesRepository.save(share);
@@ -649,7 +678,7 @@ export class FileService {
     return share?.file || null;
   }
 
-  async getPublicShare(token: string) {
+  async getPublicShare(token: string, password?: string) {
     const share = await this.sharesRepository.findOne({
       where: { share_token: token, is_public: true },
       relations: ['file', 'file.owner'],
@@ -658,6 +687,7 @@ export class FileService {
     if (!share) {
       throw new NotFoundException('Public share not found');
     }
+    await this.assertPublicShareAccess(share, password);
 
     const file = share.file;
 
@@ -676,6 +706,7 @@ export class FileService {
 
   async downloadPublicFile(
     token: string,
+    password?: string,
   ): Promise<{ data: Buffer; file: File }> {
     const share = await this.sharesRepository.findOne({
       where: { share_token: token, is_public: true },
@@ -685,6 +716,7 @@ export class FileService {
     if (!share) {
       throw new NotFoundException('Public share not found');
     }
+    await this.assertPublicShareAccess(share, password);
 
     const file = share.file;
 

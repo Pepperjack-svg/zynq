@@ -47,9 +47,12 @@ describe('PublicShareController', () => {
       const shareData = { file: mockFile, share: { token: 'abc123' } };
       fileService.getPublicShare.mockResolvedValue(shareData as any);
 
-      const result = await controller.getPublicShare('abc123');
+      const result = await controller.getPublicShare('abc123', undefined);
 
-      expect(fileService.getPublicShare).toHaveBeenCalledWith('abc123');
+      expect(fileService.getPublicShare).toHaveBeenCalledWith(
+        'abc123',
+        undefined,
+      );
       expect(result).toEqual(shareData);
     });
   });
@@ -62,9 +65,12 @@ describe('PublicShareController', () => {
         file: mockFile as any,
       });
 
-      await controller.downloadPublicFile('abc123', mockResponse);
+      await controller.downloadPublicFile('abc123', undefined, mockResponse);
 
-      expect(fileService.downloadPublicFile).toHaveBeenCalledWith('abc123');
+      expect(fileService.downloadPublicFile).toHaveBeenCalledWith(
+        'abc123',
+        undefined,
+      );
       expect(mockResponse.set).toHaveBeenCalledWith(
         expect.objectContaining({
           'Content-Type': 'application/pdf',
@@ -82,7 +88,7 @@ describe('PublicShareController', () => {
         file: fileWithNoMime as any,
       });
 
-      await controller.downloadPublicFile('token-456', mockResponse);
+      await controller.downloadPublicFile('token-456', undefined, mockResponse);
 
       expect(mockResponse.set).toHaveBeenCalledWith(
         expect.objectContaining({
