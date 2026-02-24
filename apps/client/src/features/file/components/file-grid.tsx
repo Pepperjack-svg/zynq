@@ -130,16 +130,16 @@ export function FileGrid({
             {/* Nextcloud-style list — full-width table */}
             <div className="rounded-lg border bg-card overflow-hidden">
               {/* Header row */}
-              <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/20 text-xs font-medium text-muted-foreground select-none">
+              <div className="flex items-center gap-3 border-b bg-muted/20 px-5 py-2.5 text-xs font-medium text-muted-foreground select-none">
                 <div className="w-5 shrink-0" />
                 <div className="flex-1 min-w-0">Name</div>
-                <div className="hidden sm:block w-28 shrink-0 text-right">
+                <div className="hidden sm:block w-24 shrink-0 text-right lg:w-28">
                   Size
                 </div>
-                <div className="hidden md:block w-36 shrink-0 text-right">
+                <div className="hidden md:block w-32 shrink-0 text-right lg:w-36">
                   Modified
                 </div>
-                <div className="w-20 shrink-0" />
+                <div className="w-28 shrink-0" />
               </div>
 
               <div className="divide-y divide-border/50">
