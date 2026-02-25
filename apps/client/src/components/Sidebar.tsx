@@ -290,14 +290,29 @@ export function Sidebar({ user }: SidebarProps) {
             <span className="text-sidebar-foreground/40">Storage</span>
             {!loadingStorage && storageInfo && (
               <span className="text-sidebar-foreground/50">
-                {isUnlimited
-                  ? 'Unlimited'
-                  : `${formatBytes(storageInfo.user.usedBytes)} / ${formatBytes(storageInfo.user.quotaBytes)}`}
+                {isOwner
+                  ? `${formatBytes(storageInfo.system.freeBytes)} free of ${formatBytes(storageInfo.system.totalBytes)}`
+                  : isUnlimited
+                    ? 'Unlimited'
+                    : `${formatBytes(storageInfo.user.usedBytes)} / ${formatBytes(storageInfo.user.quotaBytes)}`}
               </span>
             )}
           </div>
           {loadingStorage ? (
             <div className="h-1 bg-sidebar-accent rounded-full animate-pulse" />
+          ) : isOwner && storageInfo ? (
+            <Progress
+              value={Math.min(storageInfo.system.usedPercentage, 100)}
+              className={cn(
+                'h-1 bg-sidebar-accent/60',
+                storageInfo.system.usedPercentage >= 90 && '[&>div]:bg-red-500',
+                storageInfo.system.usedPercentage >= 75 &&
+                  storageInfo.system.usedPercentage < 90 &&
+                  '[&>div]:bg-amber-500',
+                storageInfo.system.usedPercentage < 75 &&
+                  '[&>div]:bg-sidebar-primary',
+              )}
+            />
           ) : !isUnlimited ? (
             <Progress
               value={Math.min(usedPercentage, 100)}

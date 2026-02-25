@@ -144,6 +144,18 @@ function getXhrErrorMessage(xhr: XMLHttpRequest): string {
   return fallback;
 }
 
+function formatEta(seconds: number): string {
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.ceil(seconds % 60);
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  }
+  const h = Math.floor(seconds / 3600);
+  const m = Math.ceil((seconds % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
 function getCurrentLocalDateTime(): string {
   const now = new Date();
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
@@ -1727,7 +1739,7 @@ export default function FilesPage() {
                     ? ` ${activeUploads.length} files`
                     : ''}
                   {aggregateEtaSeconds !== undefined && aggregateEtaSeconds > 0
-                    ? ` • ${aggregateEtaSeconds}s left`
+                    ? ` • ${formatEta(aggregateEtaSeconds)} left`
                     : aggregateProgress >= 95
                       ? ' • a few seconds left'
                       : ''}

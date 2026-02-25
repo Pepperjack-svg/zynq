@@ -48,10 +48,17 @@ const ALLOWED_MIME_TYPES = [
   'text/tab-separated-values',
   // Archives
   'application/zip',
+  'application/x-zip-compressed',
+  'application/x-zip',
   'application/x-rar-compressed',
+  'application/vnd.rar',
   'application/x-7z-compressed',
   'application/gzip',
+  'application/x-gzip',
   'application/x-tar',
+  'application/x-bz2',
+  'application/x-xz',
+  'application/x-apple-diskimage',
   // Audio
   'audio/mpeg',
   'audio/wav',
@@ -112,7 +119,7 @@ export class CreateFileDto {
   name: string;
 
   @IsNumber()
-  @Max(1073741824, { message: 'File size cannot exceed 1GB' }) // 1GB max
+  @Max(10995116277760, { message: 'File size cannot exceed 10TB' }) // 10TB max
   size: number;
 
   @IsString()
