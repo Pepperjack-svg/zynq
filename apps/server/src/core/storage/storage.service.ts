@@ -1,9 +1,17 @@
 import { Injectable, OnModuleInit, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EncryptionService } from '../encryption/encryption.service';
-import { promises as fs, statfsSync } from 'fs';
+import {
+  promises as fs,
+  statfsSync,
+  createReadStream,
+  createWriteStream,
+} from 'fs';
 import { join } from 'path';
-import { Readable } from 'stream';
+import { Readable, pipeline as pipelineCallback } from 'stream';
+import { promisify } from 'util';
+
+const pipeline = promisify(pipelineCallback);
 
 export interface UploadResult {
   storagePath: string;
@@ -106,6 +114,44 @@ export class StorageService implements OnModuleInit {
       iv,
       algorithm,
       encryptedSize: encryptedData.length,
+    };
+  }
+
+  /**
+   * Upload and encrypt a file by streaming from a path on disk.
+   * Unlike uploadFile(), this never loads the entire file into memory,
+   * so it handles multi-gigabyte files without OOM issues.
+   */
+  async uploadFileStream(
+    userId: string,
+    fileId: string,
+    sourcePath: string,
+  ): Promise<UploadResult> {
+    await this.ensureUserDirectories(userId);
+
+    const { dek, iv, encryptedDek, dekIv, algorithm } =
+      this.encryptionService.createFileEncryption();
+
+    const filePath = this.getFilePath(userId, fileId);
+    const tmpPath = `${filePath}.tmp`;
+
+    const encryptStream = this.encryptionService.createEncryptStream(dek, iv);
+    const readStream = createReadStream(sourcePath);
+    const writeStream = createWriteStream(tmpPath);
+
+    await pipeline(readStream, encryptStream, writeStream);
+
+    const stat = await fs.stat(tmpPath);
+    await fs.rename(tmpPath, filePath);
+
+    const combinedEncryptedDek = Buffer.concat([dekIv, encryptedDek]);
+
+    return {
+      storagePath: `${userId}/${fileId}.enc`,
+      encryptedDek: combinedEncryptedDek,
+      iv,
+      algorithm,
+      encryptedSize: stat.size,
     };
   }
 

@@ -247,6 +247,9 @@ export default function FilesPage() {
   const uploadSpeedRef = useRef<
     Map<string, { lastTs: number; lastLoaded: number; smoothedBps: number }>
   >(new Map());
+  // Tracks when each upload XHR began so the first progress event can
+  // compute an immediate speed estimate (loaded / elapsed) instead of 0.
+  const uploadStartRef = useRef<Map<string, number>>(new Map());
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [pendingDuplicates, setPendingDuplicates] = useState<DuplicateItem[]>(
     [],
@@ -375,6 +378,7 @@ export default function FilesPage() {
 
   const removeUploadProgress = (progressId: string) => {
     uploadSpeedRef.current.delete(progressId);
+    uploadStartRef.current.delete(progressId);
     setUploadQueue((prev) => prev.filter((p) => p.id !== progressId));
   };
 
@@ -742,8 +746,11 @@ export default function FilesPage() {
           const percent = Math.round((event.loaded / event.total) * 100);
           const now = performance.now();
           const current = uploadSpeedRef.current.get(progressId);
-          const previousTs = current?.lastTs ?? now;
-          const previousLoaded = current?.lastLoaded ?? event.loaded;
+          // On the first event, use time-since-send so deltaBytes = event.loaded
+          // and we get an immediate speed estimate instead of 0.
+          const startTs = uploadStartRef.current.get(progressId) ?? now;
+          const previousTs = current?.lastTs ?? startTs;
+          const previousLoaded = current?.lastLoaded ?? 0;
           const elapsedSeconds = (now - previousTs) / 1000;
           const deltaBytes = event.loaded - previousLoaded;
           const instantBps =
@@ -790,10 +797,12 @@ export default function FilesPage() {
               etaSeconds: 0,
             });
             uploadSpeedRef.current.delete(progressId);
+            uploadStartRef.current.delete(progressId);
             resolve();
           } else {
             updateUploadProgress(progressId, { status: 'error' });
             uploadSpeedRef.current.delete(progressId);
+            uploadStartRef.current.delete(progressId);
             reject(
               new ApiError(
                 getXhrErrorMessage(xhr),
@@ -811,6 +820,9 @@ export default function FilesPage() {
 
       xhr.open('PUT', fullUrl);
       xhr.withCredentials = true;
+      // Record send time so the first progress event can compute instantBps
+      // from byte 0 instead of showing no ETA until the second event.
+      uploadStartRef.current.set(progressId, performance.now());
       xhr.send(formData);
     });
   };

@@ -308,6 +308,40 @@ export class FileService {
   }
 
   /**
+   * Uploads and encrypts file content by streaming from a temp file path.
+   * Never loads the full file into memory — safe for multi-gigabyte files.
+   * @throws BadRequestException if file is folder or already has content
+   */
+  async uploadFileContentStream(
+    fileId: string,
+    userId: string,
+    sourcePath: string,
+  ): Promise<File> {
+    const file = await this.findById(fileId, userId);
+
+    if (file.is_folder) {
+      throw new BadRequestException('Cannot upload content to a folder');
+    }
+
+    if (file.encrypted_dek) {
+      throw new BadRequestException('File already has content uploaded');
+    }
+
+    const result = await this.storageService.uploadFileStream(
+      userId,
+      fileId,
+      sourcePath,
+    );
+
+    file.storage_path = result.storagePath;
+    file.encrypted_dek = result.encryptedDek;
+    file.encryption_iv = result.iv;
+    file.encryption_algo = result.algorithm;
+
+    return this.filesRepository.save(file);
+  }
+
+  /**
    * Lists user's files with pagination, search, and folder filtering.
    * Excludes soft-deleted files. Folders sorted first.
    */
