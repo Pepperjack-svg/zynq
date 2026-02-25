@@ -1,15 +1,20 @@
 # ── Stage 1: build ───────────────────────────────────────────────────────────
 FROM golang:1.22-alpine AS builder
 
+# TARGETARCH/TARGETOS are set automatically by `docker buildx build --platform`.
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
 WORKDIR /build
 
-# Cache module downloads separately from source code.
-COPY go.mod ./
-RUN go mod download
+# Copy go.sum alongside go.mod so `go mod download` verifies checksums against
+# the lockfile — prevents a compromised module mirror from injecting code.
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -trimpath \
     -o /bin/storage-service ./cmd/server
 

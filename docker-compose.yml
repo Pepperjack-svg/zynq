@@ -46,8 +46,19 @@ services:
       STORAGE_PORT: 5000
       STORAGE_PATH: /data/files
       SERVICE_TOKEN: ${STORAGE_SERVICE_TOKEN}
+      MAX_CONCURRENT_UPLOADS: ${MAX_CONCURRENT_UPLOADS:-256}
+      MAX_ASSEMBLY_WORKERS: ${MAX_ASSEMBLY_WORKERS:-32}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-24}
+      MIN_FREE_BYTES: ${MIN_FREE_BYTES:-536870912}
     volumes:
       - zynq_files:/data/files
+    # Raise the open-file descriptor limit so the service can hold thousands of
+    # concurrent upload connections without hitting the kernel default of 1024.
+    # 65536 is the standard production value for file-serving daemons.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     networks:
       - zynqcloud-network
 

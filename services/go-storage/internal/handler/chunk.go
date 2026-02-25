@@ -58,6 +58,7 @@ func newSessionID() string {
 // POST /v1/uploads
 // Body: {"owner_id":"…","file_id":"…"}
 func (h *Handler) InitUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1024) // two UUIDs + JSON framing < 200 B
 	var req InitUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -85,6 +86,7 @@ func (h *Handler) InitUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.metrics.SessionsCreated.Add(1)
 	h.logger.Info("upload session created", "session", sessionID,
 		"owner", req.OwnerID, "file", req.FileID)
 	writeJSON(w, http.StatusCreated, InitUploadResponse{SessionID: sessionID})
@@ -143,15 +145,31 @@ func (h *Handler) UploadPart(w http.ResponseWriter, r *http.Request) {
 // CompleteUpload assembles all uploaded parts in order, hashes the result,
 // writes the assembled file to its final storage path, and cleans up the session.
 //
+// Concurrency: a channel semaphore caps the number of goroutines doing
+// simultaneous disk I/O (reading part files + writing the final blob).
+// When the pool is exhausted the handler immediately returns 503 so the
+// client can retry — no goroutine is left parked waiting for a slot.
+//
 // POST /v1/uploads/{sessionId}/complete
 // Body (optional): {"expected_sha256":"…"}
 func (h *Handler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
+	// ── Assembly semaphore: non-blocking acquire ──────────────────────────────
+	select {
+	case h.assemblySem <- struct{}{}:
+		defer func() { <-h.assemblySem }()
+	default:
+		writeError(w, http.StatusServiceUnavailable,
+			"assembly queue full — retry later")
+		return
+	}
+
 	sessionID := r.PathValue("sessionId")
 	if !isValidID(sessionID) {
 		writeError(w, http.StatusBadRequest, "invalid session id")
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 256) // optional body: one SHA-256 hex string
 	var req CompleteUploadRequest
 	json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck
 
@@ -214,6 +232,9 @@ func (h *Handler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	finalPath := filepath.Join(ownerID, fileID+".enc")
 	n, err := h.store.Write(finalPath, io.TeeReader(pr, hasher))
 	if err != nil {
+		// pr.CloseWithError unblocks the writer goroutine — without this,
+		// io.Pipe's zero-buffer design would leave it blocked forever (goroutine leak).
+		pr.CloseWithError(err) //nolint:errcheck
 		writeError(w, http.StatusInternalServerError, "assemble failed")
 		return
 	}
@@ -228,6 +249,8 @@ func (h *Handler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 
 	os.RemoveAll(dir) // best-effort cleanup; failures are non-fatal
 
+	h.metrics.SessionsComplete.Add(1)
+	h.metrics.BytesWritten.Add(n)
 	h.logger.Info("chunked upload complete",
 		"path", finalPath, "parts", len(parts), "bytes", n, "sha256", hash)
 
@@ -248,5 +271,6 @@ func (h *Handler) AbortUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	os.RemoveAll(h.sessionDir(sessionID)) //nolint:errcheck
+	h.metrics.SessionsAborted.Add(1)
 	w.WriteHeader(http.StatusNoContent)
 }

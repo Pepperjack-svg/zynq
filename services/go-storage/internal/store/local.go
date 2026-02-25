@@ -64,13 +64,17 @@ func (l *Local) Write(path string, r io.Reader) (int64, error) {
 		return 0, fmt.Errorf("mkdir %q: %w", filepath.Dir(dest), err)
 	}
 
-	tmp := dest + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	// os.CreateTemp uses a random suffix so concurrent writes to the same dest
+	// do not collide on the temp file (the fixed "dest+.tmp" pattern would cause
+	// two goroutines to truncate each other's in-progress write).
+	f, err := os.CreateTemp(filepath.Dir(dest), ".tmp-*")
 	if err != nil {
-		return 0, fmt.Errorf("open tmp %q: %w", tmp, err)
+		return 0, fmt.Errorf("create tmp: %w", err)
 	}
+	tmp := f.Name()
 
-	n, werr := io.Copy(f, r)
+	buf := make([]byte, 512*1024) // 512 KB — reduces syscalls ~16× vs io.Copy's 32 KB default
+	n, werr := io.CopyBuffer(f, r, buf)
 	cerr := f.Close()
 
 	if werr != nil {
@@ -80,6 +84,12 @@ func (l *Local) Write(path string, r io.Reader) (int64, error) {
 	if cerr != nil {
 		os.Remove(tmp) //nolint:errcheck
 		return 0, fmt.Errorf("flush: %w", cerr)
+	}
+
+	// Normalise permissions before rename — os.CreateTemp uses 0600.
+	if err := os.Chmod(tmp, 0o640); err != nil {
+		os.Remove(tmp) //nolint:errcheck
+		return 0, fmt.Errorf("chmod tmp: %w", err)
 	}
 
 	if err := os.Rename(tmp, dest); err != nil {
@@ -146,6 +156,13 @@ func (l *Local) Rename(src, dst string) error {
 		return err
 	}
 	return os.Rename(absSrc, absDst)
+}
+
+// DiskStats returns the available and total bytes on the volume that holds l.root.
+// Returns (0, 0) on platforms where disk stats are not implemented (non-Linux).
+// Callers must treat (0, 0) as "stats unavailable", not "disk full".
+func (l *Local) DiskStats() (avail, total uint64) {
+	return diskStats(l.root)
 }
 
 // MkdirAll creates path and all parents under root.
