@@ -214,9 +214,14 @@ export default function FilesPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Callback ref: sets webkitdirectory when the input mounts so the native
-  // OS folder picker (not a file picker) opens on click.
+  // Ref used by handleUploadFolderClick to call .click() on Firefox fallback.
+  const folderFallbackRef = useRef<HTMLInputElement>(null);
+
+  // Callback ref: sets webkitdirectory AND stores in folderFallbackRef.
   const setFolderInputRef = useCallback((el: HTMLInputElement | null) => {
+    (
+      folderFallbackRef as React.MutableRefObject<HTMLInputElement | null>
+    ).current = el;
     if (el) el.setAttribute('webkitdirectory', '');
   }, []);
 
@@ -563,6 +568,81 @@ export default function FilesPage() {
     });
     setShowFolderUploadDialog(true);
     e.target.value = '';
+  };
+
+  /**
+   * Opens a folder picker without triggering the browser's native
+   * "Upload N files to this site?" security dialog.
+   * Uses the File System Access API (showDirectoryPicker) in Chrome/Edge/Safari.
+   * Falls back to the hidden <input webkitdirectory> for Firefox.
+   */
+  const handleUploadFolderClick = async () => {
+    if (typeof window === 'undefined' || !('showDirectoryPicker' in window)) {
+      folderFallbackRef.current?.click();
+      return;
+    }
+
+    try {
+      type DirPickerWindow = Window & {
+        showDirectoryPicker: (opts?: {
+          mode?: string;
+        }) => Promise<FileSystemDirectoryHandle>;
+      };
+      const dirHandle = await (window as DirPickerWindow).showDirectoryPicker({
+        mode: 'read',
+      });
+
+      const allFilesWithPaths: { file: File; relativePath: string }[] = [];
+
+      const traverse = async (
+        handle: FileSystemDirectoryHandle,
+        prefix: string,
+      ) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for await (const [name, entry] of (handle as any).entries()) {
+          const fullPath = `${prefix}/${name}`;
+          if ((entry as { kind: string }).kind === 'file') {
+            const file = await (entry as FileSystemFileHandle).getFile();
+            allFilesWithPaths.push({ file, relativePath: fullPath });
+          } else if ((entry as { kind: string }).kind === 'directory') {
+            await traverse(entry as FileSystemDirectoryHandle, fullPath);
+          }
+        }
+      };
+
+      await traverse(dirHandle, dirHandle.name);
+
+      if (allFilesWithPaths.length === 0) {
+        toast({
+          title: 'Empty folder',
+          description: 'The selected folder contains no files.',
+        });
+        return;
+      }
+
+      const totalSize = allFilesWithPaths.reduce(
+        (sum, f) => sum + f.file.size,
+        0,
+      );
+
+      setPendingFolderUpload({
+        files: allFilesWithPaths.map(({ file, relativePath }) => {
+          const newFile = new File([file], file.name, { type: file.type });
+          Object.defineProperty(newFile, 'webkitRelativePath', {
+            value: relativePath,
+            writable: false,
+          });
+          return newFile;
+        }),
+        folderName: dirHandle.name,
+        totalSize,
+        fileCount: allFilesWithPaths.length,
+      });
+      setShowFolderUploadDialog(true);
+    } catch (err: unknown) {
+      if ((err as { name?: string })?.name === 'AbortError') return;
+      console.error('showDirectoryPicker error:', err);
+    }
   };
 
   const handleFolderModalDrop = async (e: React.DragEvent) => {
@@ -1596,11 +1676,12 @@ export default function FilesPage() {
                     <FileIcon className="h-4 w-4" />
                     Upload Files
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild className="gap-2">
-                    <label htmlFor="folder-upload-input">
-                      <Folder className="h-4 w-4" />
-                      Upload Folder
-                    </label>
+                  <DropdownMenuItem
+                    onClick={handleUploadFolderClick}
+                    className="gap-2"
+                  >
+                    <Folder className="h-4 w-4" />
+                    Upload Folder
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

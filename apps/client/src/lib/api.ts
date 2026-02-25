@@ -720,3 +720,17 @@ export const publicApi = {
     return { blob, fileName };
   },
 };
+
+export interface UpdateCheckResult {
+  version: string;
+  latest: string | null;
+  hasUpdate: boolean;
+}
+
+export const systemApi = {
+  checkUpdate: (): Promise<UpdateCheckResult> =>
+    fetchApi<UpdateCheckResult>('/system/update-check'),
+
+  triggerUpdate: (): Promise<{ started: boolean }> =>
+    fetchApi<{ started: boolean }>('/system/update', { method: 'POST' }),
+};

@@ -13,10 +13,15 @@ import {
   User as UserIcon,
   Moon,
   Sun,
-  PanelLeftClose,
-  PanelLeft,
   Activity,
   Menu,
+  RefreshCw,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  ChevronsUpDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { Progress } from './ui/progress';
 import { Avatar, AvatarFallback } from './ui/avatar';
@@ -32,19 +37,21 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
-import type { User, StorageOverview } from '@/lib/api';
-import { storageApi, authApi } from '@/lib/api';
+import { AnimatePresence, motion } from 'framer-motion';
+import type { User, UpdateCheckResult, StorageOverview } from '@/lib/api';
+import { storageApi, authApi, systemApi } from '@/lib/api';
 import { formatBytes, getInitials } from '@/lib/auth';
 import { STORAGE_REFRESH_EVENT } from '@/lib/storage-events';
 import { useTheme } from './ThemeProvider';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || '1.0.0';
-const GITHUB_REPO = 'DineshMn1/zynq';
 
 interface SidebarProps {
   user: User | null;
 }
+
+type UpdateStep = 'idle' | 'pulling' | 'restarting' | 'done' | 'error';
 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
@@ -54,44 +61,37 @@ export function Sidebar({ user }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [storageInfo, setStorageInfo] = useState<StorageOverview | null>(null);
   const [loadingStorage, setLoadingStorage] = useState(true);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [updateStep, setUpdateStep] = useState<UpdateStep>('idle');
   const isMobile = useIsMobile();
+
   const isAdmin = user?.role === 'admin' || user?.role === 'owner';
+  const isOwner = user?.role === 'owner';
+  const updateAvailable = !!updateInfo?.hasUpdate;
+  const latestVersion = updateInfo?.latest;
+  const usedPercentage = storageInfo?.user.usedPercentage || 0;
+  const isUnlimited = storageInfo?.user.isUnlimited;
 
   useEffect(() => {
-    if (user) {
-      loadStorageInfo();
-    }
+    if (user) void loadStorageInfo();
   }, [user]);
 
   useEffect(() => {
-    fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`)
-      .then((r) => r.json())
-      .then((data: { tag_name?: string }) => {
-        const tag = data.tag_name?.replace(/^v/, '');
-        if (tag && tag !== APP_VERSION) {
-          setUpdateAvailable(true);
-          setLatestVersion(tag);
-        }
-      })
+    systemApi
+      .checkUpdate()
+      .then(setUpdateInfo)
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    const onStorageRefresh = () => {
-      if (user) {
-        void loadStorageInfo();
-      }
+    const cb = () => {
+      if (user) void loadStorageInfo();
     };
-
-    window.addEventListener(STORAGE_REFRESH_EVENT, onStorageRefresh);
-    return () => {
-      window.removeEventListener(STORAGE_REFRESH_EVENT, onStorageRefresh);
-    };
+    window.addEventListener(STORAGE_REFRESH_EVENT, cb);
+    return () => window.removeEventListener(STORAGE_REFRESH_EVENT, cb);
   }, [user]);
 
-  // Close mobile sidebar on route change
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
@@ -99,10 +99,9 @@ export function Sidebar({ user }: SidebarProps) {
   const loadStorageInfo = async () => {
     try {
       setLoadingStorage(true);
-      const data = await storageApi.getOverview();
-      setStorageInfo(data);
-    } catch (error) {
-      console.error('Failed to load storage info:', error);
+      setStorageInfo(await storageApi.getOverview());
+    } catch {
+      /* ignore */
     } finally {
       setLoadingStorage(false);
     }
@@ -111,27 +110,39 @@ export function Sidebar({ user }: SidebarProps) {
   const handleLogout = async () => {
     try {
       await authApi.logout();
-    } catch (error) {
-      console.error('Logout error:', error);
+    } catch {
+      /* ignore */
     } finally {
       router.push('/login');
     }
   };
 
-  // Home section links
-  const homeLinks = [
+  const handleUpdate = async () => {
+    setUpdateStep('pulling');
+    try {
+      await systemApi.triggerUpdate();
+      setUpdateStep('restarting');
+      setTimeout(() => {
+        setUpdateStep('done');
+        setTimeout(() => window.location.reload(), 3000);
+      }, 8000);
+    } catch {
+      setUpdateStep('error');
+    }
+  };
+
+  // ── Nav link definitions ────────────────────────────────────────────────────
+  const mainLinks = [
     { href: '/dashboard/files', label: 'All Files', icon: Files },
     { href: '/dashboard/shared', label: 'Shared', icon: Share2 },
     { href: '/dashboard/trash', label: 'Trash', icon: Trash2 },
   ];
 
-  // Settings section links (for all users)
   const settingsLinks = [
     { href: '/dashboard/settings', label: 'Preferences', icon: Settings },
     { href: '/dashboard/profile', label: 'Profile', icon: UserIcon },
   ];
 
-  // Admin settings links
   const adminLinks = isAdmin
     ? [
         { href: '/dashboard/settings/users', label: 'Users', icon: Users },
@@ -148,13 +159,13 @@ export function Sidebar({ user }: SidebarProps) {
       ]
     : [];
 
-  const usedPercentage = storageInfo?.user.usedPercentage || 0;
-  const isUnlimited = storageInfo?.user.isUnlimited;
-
-  const isActiveLink = (href: string) =>
+  const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + '/');
 
-  const NavLink = ({
+  // ── Sub-components ──────────────────────────────────────────────────────────
+
+  /** Single navigation item. Wraps in tooltip when sidebar is collapsed. */
+  const NavItem = ({
     href,
     label,
     icon: Icon,
@@ -163,362 +174,435 @@ export function Sidebar({ user }: SidebarProps) {
     label: string;
     icon: React.ElementType;
   }) => {
-    const isActive = isActiveLink(href);
+    const active = isActive(href);
     const showLabel = isMobile || !collapsed;
-    const link = (
+
+    const inner = (
       <Link
         href={href}
         className={cn(
-          'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
-          isActive
-            ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-            : 'text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50',
-          !showLabel && 'justify-center px-2',
+          'flex items-center gap-3 px-3 rounded-lg transition-colors',
+          showLabel ? 'py-2.5' : 'py-2 justify-center',
+          active
+            ? 'bg-sidebar-accent text-sidebar-foreground font-medium'
+            : 'text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent/60',
         )}
       >
-        <Icon className="h-4 w-4 shrink-0" />
-        {showLabel && <span>{label}</span>}
+        <Icon className="h-[18px] w-[18px] shrink-0" />
+        {showLabel && (
+          <span className="text-[14px] font-medium leading-none">{label}</span>
+        )}
       </Link>
     );
 
-    if (showLabel) return link;
-
+    if (showLabel) return inner;
     return (
       <Tooltip>
-        <TooltipTrigger asChild>{link}</TooltipTrigger>
-        <TooltipContent side="right" sideOffset={8}>
+        <TooltipTrigger asChild>{inner}</TooltipTrigger>
+        <TooltipContent side="right" sideOffset={10}>
           {label}
         </TooltipContent>
       </Tooltip>
     );
   };
 
-  const SectionHeader = ({ title }: { title: string }) => (
-    <>
-      {isMobile || !collapsed ? (
-        <p className="px-3 mb-2 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider">
-          {title}
-        </p>
-      ) : (
-        <div className="border-t border-sidebar-border mx-2 my-3" />
-      )}
-    </>
-  );
+  /** Thin group separator with optional label (Dokploy "Extra" style). */
+  const GroupLabel = ({ title }: { title: string }) =>
+    isMobile || !collapsed ? (
+      <p className="px-3 pt-5 pb-1.5 text-[11px] font-semibold text-sidebar-foreground/45 select-none uppercase tracking-wider">
+        {title}
+      </p>
+    ) : (
+      <div className="my-3 border-t border-sidebar-border mx-3" />
+    );
 
+  // ── Sidebar body ────────────────────────────────────────────────────────────
   const sidebarContent = (
     <aside
       className={cn(
         'flex flex-col h-full bg-sidebar border-r border-sidebar-border transition-all duration-200',
-        isMobile ? 'w-full' : collapsed ? 'w-[60px]' : 'w-[240px]',
+        isMobile ? 'w-full' : collapsed ? 'w-[60px]' : 'w-[256px]',
       )}
     >
-      {/* Logo Header */}
+      {/* ── Header — logo only, no toggle inside ── */}
       <div
         className={cn(
-          'h-14 flex items-center border-b border-sidebar-border px-3',
-          !isMobile && collapsed && 'justify-center',
+          'h-14 shrink-0 flex items-center border-b border-sidebar-border',
+          collapsed ? 'justify-center px-2' : 'px-3',
         )}
       >
-        {isMobile || !collapsed ? (
-          <Link href="/dashboard/files" className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-white border border-sidebar-border flex items-center justify-center overflow-hidden shrink-0">
+        {collapsed ? (
+          <Link href="/dashboard/files">
+            <div className="h-7 w-7 rounded-md bg-white border border-sidebar-border flex items-center justify-center overflow-hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/favicon.ico"
-                alt="App icon"
-                className="h-full w-full object-contain p-1"
+                alt="logo"
+                className="h-full w-full object-contain p-0.5"
               />
             </div>
-            <span className="font-semibold text-sidebar-foreground">
+          </Link>
+        ) : (
+          <Link
+            href="/dashboard/files"
+            className="flex items-center gap-2.5 min-w-0"
+          >
+            <div className="h-7 w-7 rounded-md bg-white border border-sidebar-border flex items-center justify-center overflow-hidden shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/favicon.ico"
+                alt="logo"
+                className="h-full w-full object-contain p-0.5"
+              />
+            </div>
+            <span className="font-semibold text-[15px] text-sidebar-foreground truncate">
               ZynqCloud
             </span>
           </Link>
-        ) : (
-          <Link href="/dashboard/files">
-            <div className="h-8 w-8 rounded-lg bg-white border border-sidebar-border flex items-center justify-center overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/favicon.ico"
-                alt="App icon"
-                className="h-full w-full object-contain p-1"
-              />
-            </div>
-          </Link>
         )}
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-4 px-2">
-        {/* Home Section */}
-        <div className="space-y-1">
-          <SectionHeader title="Home" />
-          {homeLinks.map((link) => (
-            <NavLink key={link.href} {...link} />
-          ))}
-        </div>
+      {/* ── Navigation (scrollable) ── */}
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+        {mainLinks.map((l) => (
+          <NavItem key={l.href} {...l} />
+        ))}
 
-        {/* Settings Section */}
-        <div className="mt-6 space-y-1">
-          <SectionHeader title="Settings" />
-          {settingsLinks.map((link) => (
-            <NavLink key={link.href} {...link} />
-          ))}
-        </div>
+        <GroupLabel title="Settings" />
+        {settingsLinks.map((l) => (
+          <NavItem key={l.href} {...l} />
+        ))}
 
-        {/* Admin Settings Section */}
         {isAdmin && adminLinks.length > 0 && (
-          <div className="mt-6 space-y-1">
-            <SectionHeader title="Admin Settings" />
-            {adminLinks.map((link) => (
-              <NavLink key={link.href} {...link} />
+          <>
+            <GroupLabel title="Admin" />
+            {adminLinks.map((l) => (
+              <NavItem key={l.href} {...l} />
             ))}
-          </div>
+          </>
         )}
       </nav>
 
-      {/* Version Tag */}
-      <div
-        className={cn(
-          'px-3 py-2 border-t border-sidebar-border',
-          !isMobile && collapsed && 'px-2',
-        )}
-      >
-        {isMobile || !collapsed ? (
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-sidebar-foreground/40 font-mono select-none">
-              v{APP_VERSION}
-            </span>
-            {updateAvailable && latestVersion && (
+      {/* ── Storage bar ── */}
+      {(isMobile || !collapsed) && (
+        <div className="px-4 py-3 border-t border-sidebar-border">
+          <div className="flex items-center justify-between mb-1.5 text-[11px]">
+            <span className="text-sidebar-foreground/40">Storage</span>
+            {!loadingStorage && storageInfo && (
+              <span className="text-sidebar-foreground/50">
+                {isUnlimited
+                  ? 'Unlimited'
+                  : `${formatBytes(storageInfo.user.usedBytes)} / ${formatBytes(storageInfo.user.quotaBytes)}`}
+              </span>
+            )}
+          </div>
+          {loadingStorage ? (
+            <div className="h-1 bg-sidebar-accent rounded-full animate-pulse" />
+          ) : !isUnlimited ? (
+            <Progress
+              value={Math.min(usedPercentage, 100)}
+              className={cn(
+                'h-1 bg-sidebar-accent/60',
+                usedPercentage >= 90 && '[&>div]:bg-red-500',
+                usedPercentage >= 75 &&
+                  usedPercentage < 90 &&
+                  '[&>div]:bg-amber-500',
+                usedPercentage < 75 && '[&>div]:bg-sidebar-primary',
+              )}
+            />
+          ) : (
+            <div className="h-1 bg-sidebar-primary/20 rounded-full" />
+          )}
+        </div>
+      )}
+
+      {/* ── User row (Dokploy style) ── */}
+      <div className="shrink-0 border-t border-sidebar-border">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className={cn(
+                'w-full flex items-center gap-3 px-3 py-2.5 hover:bg-sidebar-accent/60 transition-colors',
+                !isMobile && collapsed && 'justify-center px-2',
+              )}
+            >
+              <Avatar className="h-8 w-8 shrink-0 rounded-lg">
+                <AvatarFallback className="rounded-lg bg-sidebar-primary/20 text-sidebar-foreground text-xs font-semibold">
+                  {getInitials(user?.name ?? '')}
+                </AvatarFallback>
+              </Avatar>
+              {(isMobile || !collapsed) && user && (
+                <>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-[13.5px] font-semibold text-sidebar-foreground leading-tight truncate">
+                      {user.name}
+                    </p>
+                    <p className="text-[11px] text-sidebar-foreground/50 leading-tight truncate mt-0.5">
+                      {user.email}
+                    </p>
+                  </div>
+                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-sidebar-foreground/40" />
+                </>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align={!isMobile && collapsed ? 'center' : 'start'}
+            side="top"
+            className="w-56 mb-1"
+          >
+            <div className="px-2 py-1.5">
+              <p className="text-sm font-medium">{user?.name}</p>
+              <p className="text-xs text-muted-foreground">{user?.email}</p>
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/profile" className="cursor-pointer">
+                <UserIcon className="mr-2 h-4 w-4" />
+                Profile
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/settings" className="cursor-pointer">
+                <Settings className="mr-2 h-4 w-4" />
+                Preferences
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={toggleTheme} className="cursor-pointer">
+              {theme === 'dark' ? (
+                <>
+                  <Sun className="mr-2 h-4 w-4" />
+                  Light Mode
+                </>
+              ) : (
+                <>
+                  <Moon className="mr-2 h-4 w-4" />
+                  Dark Mode
+                </>
+              )}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={handleLogout}
+              className="text-red-500 focus:text-red-500 cursor-pointer"
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              Logout
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* ── Version string (Dokploy style — centered, very muted) ── */}
+        {(isMobile || !collapsed) && (
+          <div className="flex items-center justify-center gap-2 pb-2.5 pt-0">
+            {isOwner && updateAvailable && latestVersion ? (
+              <button
+                onClick={() => setUpdateModalOpen(true)}
+                className="flex items-center gap-1.5 text-[11px] text-blue-500 hover:text-blue-400 transition-colors"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
+                Update to v{latestVersion}
+              </button>
+            ) : updateAvailable && latestVersion ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0 cursor-default" />
+                  <span className="text-[11px] text-sidebar-foreground/30 select-none flex items-center gap-1.5">
+                    Version v{APP_VERSION}
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
+                  </span>
                 </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={8}>
+                <TooltipContent>
                   Update available: v{latestVersion}
                 </TooltipContent>
               </Tooltip>
-            )}
-          </div>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex justify-center">
-                {updateAvailable ? (
-                  <div className="h-1.5 w-1.5 rounded-full bg-blue-500 cursor-default" />
-                ) : (
-                  <span className="text-[10px] text-sidebar-foreground/30 font-mono select-none cursor-default">
-                    v
-                  </span>
-                )}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right" sideOffset={8}>
-              {updateAvailable && latestVersion
-                ? `Update available: v${latestVersion} (current: v${APP_VERSION})`
-                : `v${APP_VERSION}`}
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </div>
-
-      {/* Storage Indicator */}
-      <div
-        className={cn(
-          'px-3 py-3 border-t border-sidebar-border',
-          !isMobile && collapsed && 'px-2',
-        )}
-      >
-        {isMobile || !collapsed ? (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-sidebar-foreground/60">Storage</span>
-              {!loadingStorage && storageInfo && (
-                <span className="text-sidebar-foreground/80">
-                  {isUnlimited
-                    ? 'Unlimited'
-                    : `${formatBytes(storageInfo.user.usedBytes)} / ${formatBytes(storageInfo.user.quotaBytes)}`}
-                </span>
-              )}
-            </div>
-            {loadingStorage ? (
-              <div className="h-1.5 bg-sidebar-accent rounded-full animate-pulse" />
-            ) : !isUnlimited ? (
-              <Progress
-                value={Math.min(usedPercentage, 100)}
-                className={cn(
-                  'h-1.5 bg-sidebar-accent',
-                  usedPercentage >= 90 && '[&>div]:bg-red-500',
-                  usedPercentage >= 75 &&
-                    usedPercentage < 90 &&
-                    '[&>div]:bg-amber-500',
-                  usedPercentage < 75 && '[&>div]:bg-sidebar-primary',
-                )}
-              />
             ) : (
-              <div className="h-1.5 bg-sidebar-primary/30 rounded-full" />
-            )}
-            {!loadingStorage && storageInfo && isUnlimited && (
-              <p className="text-[10px] text-sidebar-foreground/40">
-                {formatBytes(storageInfo.system.freeBytes)} free of{' '}
-                {formatBytes(storageInfo.system.totalBytes)}
-              </p>
+              <span className="text-[11px] text-sidebar-foreground/30 select-none">
+                Version v{APP_VERSION}
+              </span>
             )}
           </div>
-        ) : (
+        )}
+        {/* Collapsed — update dot in version area */}
+        {!isMobile && collapsed && updateAvailable && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex justify-center">
-                <div
-                  className={cn(
-                    'h-2 w-2 rounded-full',
-                    usedPercentage >= 90 && 'bg-red-500',
-                    usedPercentage >= 75 &&
-                      usedPercentage < 90 &&
-                      'bg-amber-500',
-                    usedPercentage < 75 && 'bg-sidebar-primary',
-                  )}
-                />
+              <div
+                className={cn(
+                  'pb-3 pt-0.5 flex justify-center',
+                  isOwner && 'cursor-pointer',
+                )}
+                onClick={isOwner ? () => setUpdateModalOpen(true) : undefined}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
               </div>
             </TooltipTrigger>
-            <TooltipContent side="right" sideOffset={8}>
-              {storageInfo
-                ? isUnlimited
-                  ? `${formatBytes(storageInfo.user.usedBytes)} used — ${formatBytes(storageInfo.system.freeBytes)} free`
-                  : `${formatBytes(storageInfo.user.usedBytes)} / ${formatBytes(storageInfo.user.quotaBytes)}`
-                : 'Loading...'}
+            <TooltipContent side="right" sideOffset={10}>
+              Update available: v{latestVersion}
             </TooltipContent>
           </Tooltip>
-        )}
-      </div>
-
-      {/* User Profile & Controls */}
-      <div
-        className={cn(
-          'px-2 py-2 border-t border-sidebar-border',
-          !isMobile && collapsed && 'px-1',
-        )}
-      >
-        {user ? (
-          <div
-            className={cn(
-              'flex items-center gap-2',
-              !isMobile && collapsed && 'flex-col',
-            )}
-          >
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className={cn(
-                    'flex items-center gap-2 p-2 rounded-md hover:bg-sidebar-accent transition-colors text-left flex-1 min-w-0',
-                    !isMobile && collapsed && 'justify-center w-full',
-                  )}
-                >
-                  <Avatar className="h-8 w-8 shrink-0">
-                    <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground text-xs font-medium">
-                      {getInitials(user.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  {(isMobile || !collapsed) && (
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-sidebar-foreground truncate">
-                        {user.name}
-                      </p>
-                      <p className="text-xs text-sidebar-foreground/60 truncate">
-                        {user.email}
-                      </p>
-                    </div>
-                  )}
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align={!isMobile && collapsed ? 'center' : 'start'}
-                side="top"
-                className="w-56 mb-1"
-              >
-                <div className="px-2 py-1.5">
-                  <p className="text-sm font-medium">{user.name}</p>
-                  <p className="text-xs text-muted-foreground">{user.email}</p>
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/profile" className="cursor-pointer">
-                    <UserIcon className="mr-2 h-4 w-4" />
-                    Profile
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/settings" className="cursor-pointer">
-                    <Settings className="mr-2 h-4 w-4" />
-                    Preferences
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={toggleTheme}
-                  className="cursor-pointer"
-                >
-                  {theme === 'dark' ? (
-                    <>
-                      <Sun className="mr-2 h-4 w-4" />
-                      Light Mode
-                    </>
-                  ) : (
-                    <>
-                      <Moon className="mr-2 h-4 w-4" />
-                      Dark Mode
-                    </>
-                  )}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={handleLogout}
-                  className="text-red-500 focus:text-red-500 cursor-pointer"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Collapse button — desktop only */}
-            {!isMobile && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setCollapsed(!collapsed)}
-                className={cn(
-                  'h-8 w-8 shrink-0 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent',
-                  collapsed && 'mt-1',
-                )}
-                title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              >
-                {collapsed ? (
-                  <PanelLeft className="h-4 w-4" />
-                ) : (
-                  <PanelLeftClose className="h-4 w-4" />
-                )}
-              </Button>
-            )}
-          </div>
-        ) : (
-          <div
-            className={cn(
-              'p-2',
-              !isMobile && collapsed && 'flex justify-center',
-            )}
-          >
-            <div className="h-8 w-8 rounded-full bg-sidebar-accent animate-pulse" />
-          </div>
         )}
       </div>
     </aside>
   );
 
-  // Mobile: render sidebar in a Sheet overlay
+  // ── Update modal ────────────────────────────────────────────────────────────
+  const updateModal = (
+    <AnimatePresence>
+      {updateModalOpen && (
+        <>
+          <motion.div
+            key="bd"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 bg-black/50"
+            onClick={() => {
+              if (
+                updateStep === 'idle' ||
+                updateStep === 'done' ||
+                updateStep === 'error'
+              ) {
+                setUpdateModalOpen(false);
+                setUpdateStep('idle');
+              }
+            }}
+          />
+          <motion.div
+            key="panel"
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+          >
+            <div className="pointer-events-auto w-full max-w-sm rounded-xl bg-background border border-border shadow-xl p-6 space-y-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-[15px] font-semibold">
+                    Update Available
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    v{APP_VERSION} → v{latestVersion}
+                  </p>
+                </div>
+                {(updateStep === 'idle' || updateStep === 'error') && (
+                  <button
+                    onClick={() => {
+                      setUpdateModalOpen(false);
+                      setUpdateStep('idle');
+                    }}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                {/* Step 1 */}
+                <div
+                  className={cn(
+                    'flex items-center gap-3 text-sm px-3 py-2.5 rounded-lg transition-colors',
+                    updateStep === 'pulling' && 'bg-blue-500/10 text-blue-500',
+                    (updateStep === 'restarting' || updateStep === 'done') &&
+                      'text-muted-foreground',
+                    updateStep === 'idle' && 'text-muted-foreground/50',
+                  )}
+                >
+                  {updateStep === 'pulling' ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{
+                        repeat: Infinity,
+                        duration: 1,
+                        ease: 'linear',
+                      }}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </motion.div>
+                  ) : updateStep === 'restarting' || updateStep === 'done' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <div className="h-4 w-4 rounded-full border border-current" />
+                  )}
+                  <span>Pull latest image</span>
+                </div>
+
+                {/* Step 2 */}
+                <div
+                  className={cn(
+                    'flex items-center gap-3 text-sm px-3 py-2.5 rounded-lg transition-colors',
+                    updateStep === 'restarting' &&
+                      'bg-blue-500/10 text-blue-500',
+                    updateStep === 'done' && 'text-muted-foreground',
+                    (updateStep === 'idle' || updateStep === 'pulling') &&
+                      'text-muted-foreground/35',
+                  )}
+                >
+                  {updateStep === 'restarting' ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{
+                        repeat: Infinity,
+                        duration: 1,
+                        ease: 'linear',
+                      }}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </motion.div>
+                  ) : updateStep === 'done' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <div className="h-4 w-4 rounded-full border border-current" />
+                  )}
+                  <span>Restart container</span>
+                </div>
+              </div>
+
+              {updateStep === 'done' && (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-sm text-green-500 text-center"
+                >
+                  Done — reloading page…
+                </motion.p>
+              )}
+              {updateStep === 'error' && (
+                <div className="flex items-center gap-2 text-sm text-red-500">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  Update failed. Check server logs.
+                </div>
+              )}
+              {updateStep === 'idle' && (
+                <Button className="w-full" onClick={handleUpdate}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Update Now
+                </Button>
+              )}
+              {updateStep === 'error' && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setUpdateStep('idle')}
+                >
+                  Retry
+                </Button>
+              )}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+
+  // ── Mobile layout ───────────────────────────────────────────────────────────
   if (isMobile) {
     return (
       <>
-        {/* Mobile top bar */}
+        {updateModal}
         <div className="fixed top-0 left-0 right-0 z-40 h-14 bg-sidebar border-b border-sidebar-border flex items-center px-3 gap-3">
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
@@ -535,15 +619,15 @@ export function Sidebar({ user }: SidebarProps) {
             </SheetContent>
           </Sheet>
           <Link href="/dashboard/files" className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-lg bg-white border border-sidebar-border flex items-center justify-center overflow-hidden">
+            <div className="h-7 w-7 rounded-md bg-white border border-sidebar-border flex items-center justify-center overflow-hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/favicon.ico"
-                alt="App icon"
-                className="h-full w-full object-contain p-1"
+                alt="logo"
+                className="h-full w-full object-contain p-0.5"
               />
             </div>
-            <span className="font-semibold text-sidebar-foreground text-sm">
+            <span className="font-semibold text-sidebar-foreground text-[15px]">
               ZynqCloud
             </span>
           </Link>
@@ -552,6 +636,27 @@ export function Sidebar({ user }: SidebarProps) {
     );
   }
 
-  // Desktop: render sidebar normally
-  return sidebarContent;
+  // ── Desktop layout ──────────────────────────────────────────────────────────
+  return (
+    <>
+      {updateModal}
+      {/* Wrapper gives us a positioned ancestor for the floating edge handle */}
+      <div className="relative flex-shrink-0">
+        {sidebarContent}
+        {/* Floating toggle — sits on the right border of the sidebar, half-outside.
+            Matches the Dokploy pattern: handle is outside the sidebar body. */}
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="absolute top-[18px] -right-3 z-30 h-6 w-6 rounded-full bg-sidebar border border-sidebar-border flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all shadow-sm"
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? (
+            <ChevronRight className="h-3 w-3" />
+          ) : (
+            <ChevronLeft className="h-3 w-3" />
+          )}
+        </button>
+      </div>
+    </>
+  );
 }

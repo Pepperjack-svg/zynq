@@ -7,6 +7,7 @@ import { InvitationModule } from './invitation/invitation.module';
 import { StorageModule } from './storage/storage.module';
 import { SettingModule } from './setting/setting.module';
 import { EncryptionModule } from './encryption/encryption.module';
+import { SystemModule } from './system/system.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { EncryptionModule } from './encryption/encryption.module';
     InvitationModule,
     StorageModule,
     SettingModule,
+    SystemModule,
   ],
   exports: [
     EncryptionModule,
@@ -28,6 +30,7 @@ import { EncryptionModule } from './encryption/encryption.module';
     InvitationModule,
     StorageModule,
     SettingModule,
+    SystemModule,
   ],
 })
 export class CoreModule {}
