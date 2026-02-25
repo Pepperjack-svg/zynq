@@ -36,6 +36,21 @@ services:
     networks:
       - zynqcloud-network
 
+  storage-service:
+    build:
+      context: ./services/go-storage
+      dockerfile: Dockerfile
+    container_name: zynqcloud-storage
+    restart: unless-stopped
+    environment:
+      STORAGE_PORT: 5000
+      STORAGE_PATH: /data/files
+      SERVICE_TOKEN: ${STORAGE_SERVICE_TOKEN}
+    volumes:
+      - zynq_files:/data/files
+    networks:
+      - zynqcloud-network
+
   zynqcloud:
     image: ${ZYNQCLOUD_IMAGE:-dineshmn1/zynqcloud:latest}
     container_name: zynqcloud
@@ -43,6 +58,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      storage-service:
+        condition: service_started
     environment:
       NODE_ENV: production
       PORT: 4000
@@ -70,6 +87,8 @@ services:
       FRONTEND_URL: ${FRONTEND_URL}
       RATE_LIMIT_TTL: ${RATE_LIMIT_TTL}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX}
+      STORAGE_SERVICE_URL: http://storage-service:5000
+      STORAGE_SERVICE_TOKEN: ${STORAGE_SERVICE_TOKEN}
     ports:
       - '${APP_PORT:-3000}:80'
     volumes:
