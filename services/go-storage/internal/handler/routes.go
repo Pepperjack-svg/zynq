@@ -19,7 +19,7 @@ type Handler struct {
 	logger      *slog.Logger
 	metrics     *Metrics
 	cas         *store.CAS    // Content-Addressable Storage for dedup; nil when init failed
-	assemblySem chan struct{}  // bounded slot pool for CompleteUpload disk I/O
+	assemblySem chan struct{} // bounded slot pool for CompleteUpload disk I/O
 }
 
 // New registers all routes and returns the root http.Handler.
