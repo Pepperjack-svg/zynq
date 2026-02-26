@@ -60,7 +60,6 @@ jobs:
       # vulnerabilities are not OS-specific.
       - name: govulncheck
         if: runner.os == 'Linux'
-        continue-on-error: true
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
