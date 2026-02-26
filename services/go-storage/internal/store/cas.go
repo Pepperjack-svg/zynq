@@ -107,7 +107,7 @@ func (c *CAS) Put(r io.Reader) (PutResult, error) {
 	unlock := c.lockHash(sha256hex)
 	defer unlock()
 
-	if statErr := os.Stat(blobAbs); statErr == nil {
+	if _, statErr := os.Stat(blobAbs); statErr == nil {
 		// Dedup hit — blob already exists; discard the temp file.
 		os.Remove(tmpPath) //nolint:errcheck
 		return PutResult{SHA256: sha256hex, Size: n, IsNew: false, BlobPath: blobRel}, nil
