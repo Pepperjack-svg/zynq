@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, Not, In } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { File } from './entities/file.entity';
 import { Share } from '../share/entities/share.entity';
 import { StorageService } from '../storage/storage.service';
@@ -55,6 +56,7 @@ export class FileService {
     private sharesRepository: Repository<Share>,
     private storageService: StorageService,
     private userService: UserService,
+    private configService: ConfigService,
   ) {}
 
   private resolveStorageTarget(
@@ -75,7 +77,7 @@ export class FileService {
   private getPublicBaseUrl(requestOrigin?: string): string {
     return (
       requestOrigin ||
-      process.env.FRONTEND_URL ||
+      this.configService.get('FRONTEND_URL') ||
       'http://localhost:3000'
     ).replace(/\/+$/, '');
   }
@@ -297,6 +299,40 @@ export class FileService {
     const result = await this.storageService.uploadFile(userId, fileId, data);
 
     // Update file with encryption metadata
+    file.storage_path = result.storagePath;
+    file.encrypted_dek = result.encryptedDek;
+    file.encryption_iv = result.iv;
+    file.encryption_algo = result.algorithm;
+
+    return this.filesRepository.save(file);
+  }
+
+  /**
+   * Uploads and encrypts file content by streaming from a temp file path.
+   * Never loads the full file into memory — safe for multi-gigabyte files.
+   * @throws BadRequestException if file is folder or already has content
+   */
+  async uploadFileContentStream(
+    fileId: string,
+    userId: string,
+    sourcePath: string,
+  ): Promise<File> {
+    const file = await this.findById(fileId, userId);
+
+    if (file.is_folder) {
+      throw new BadRequestException('Cannot upload content to a folder');
+    }
+
+    if (file.encrypted_dek) {
+      throw new BadRequestException('File already has content uploaded');
+    }
+
+    const result = await this.storageService.uploadFileStream(
+      userId,
+      fileId,
+      sourcePath,
+    );
+
     file.storage_path = result.storagePath;
     file.encrypted_dek = result.encryptedDek;
     file.encryption_iv = result.iv;

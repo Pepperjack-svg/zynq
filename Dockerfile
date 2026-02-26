@@ -52,7 +52,9 @@ COPY docker/supervisord.conf /etc/supervisord.conf
 RUN mkdir -p /var/log/nginx /tmp/nginx_client_body /tmp/nginx_proxy \
     /tmp/nginx_fastcgi /tmp/nginx_uwsgi /tmp/nginx_scgi \
     /data/files /var/log \
-    && chown -R app:app /app /data/files /var/log/nginx /tmp
+    && chown -R app:app /app /data/files /var/log/nginx \
+        /tmp/nginx_client_body /tmp/nginx_proxy /tmp/nginx_fastcgi \
+        /tmp/nginx_uwsgi /tmp/nginx_scgi
 
 # Expose single port
 EXPOSE 80

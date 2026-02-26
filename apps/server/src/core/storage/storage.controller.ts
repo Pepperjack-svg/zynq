@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Controller,
+  ForbiddenException,
   Get,
   NotFoundException,
   Patch,
@@ -145,6 +146,12 @@ export class StorageController {
     const user = await this.userService.findById(userId);
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (user.role === UserRole.OWNER) {
+      throw new ForbiddenException(
+        'Storage quota cannot be modified for owner accounts',
+      );
     }
 
     const usedBytes = Number(user.storage_used ?? 0);

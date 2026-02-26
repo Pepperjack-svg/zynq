@@ -193,6 +193,7 @@ describe('AuthController', () => {
       expect(mockResponse.clearCookie).toHaveBeenCalledWith(
         'jid',
         expect.objectContaining({
+          httpOnly: true,
           path: '/',
           sameSite: 'strict',
           secure: true,

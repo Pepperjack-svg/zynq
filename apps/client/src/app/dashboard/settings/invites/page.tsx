@@ -75,7 +75,10 @@ export default function InvitesPage() {
       setInvites(data);
     } catch (error: unknown) {
       console.error('Failed to load invites:', error);
-      const message = error instanceof Error ? error.message : 'Failed to load invites. Check your network/auth.';
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to load invites. Check your network/auth.';
       setErrorMessage(message);
     } finally {
       setLoading(false);
@@ -86,13 +89,14 @@ export default function InvitesPage() {
     loadInvites();
   }, [loadInvites]);
 
-const buildInviteLink = (invite: Invitation & { link?: string }) => {
-  if (invite.link) return invite.link;
-  if (invite.token) return `${window.location.origin}/register?inviteToken=${invite.token}`;
-  if (invite.id) return `${window.location.origin}/register?inviteId=${invite.id}`;
-  return window.location.origin;
-};
-
+  const buildInviteLink = (invite: Invitation & { link?: string }) => {
+    if (invite.link) return invite.link;
+    if (invite.token)
+      return `${window.location.origin}/register?inviteToken=${invite.token}`;
+    if (invite.id)
+      return `${window.location.origin}/register?invite=${invite.id}`;
+    return window.location.origin;
+  };
 
   const handleCreateInvite = async () => {
     clearMessages();
@@ -117,19 +121,26 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
       // build link and copy
       const link = buildInviteLink(invite);
       try {
-        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        if (
+          navigator.clipboard &&
+          typeof navigator.clipboard.writeText === 'function'
+        ) {
           await navigator.clipboard.writeText(link);
           setCopiedId(invite.id);
           setTimeout(() => setCopiedId(null), 3000);
           setSuccessMessage('Invite created and link copied to clipboard.');
         } else {
           window.prompt('Copy invite link', link);
-          setSuccessMessage('Invite created. Please copy the link from the prompt.');
+          setSuccessMessage(
+            'Invite created. Please copy the link from the prompt.',
+          );
         }
       } catch (writeErr) {
         console.error('Clipboard write failed', writeErr);
         window.prompt('Copy invite link', link);
-        setSuccessMessage('Invite created. Please copy the link from the prompt.');
+        setSuccessMessage(
+          'Invite created. Please copy the link from the prompt.',
+        );
       }
 
       // Reset form + close dialog
@@ -137,7 +148,10 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
       setDialogOpen(false);
     } catch (err: unknown) {
       console.error('Failed to create invite:', err);
-      const message = err instanceof Error ? err.message : 'Failed to create invite. Check that you are authenticated and your backend is reachable.';
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Failed to create invite. Check that you are authenticated and your backend is reachable.';
       setErrorMessage(message);
     } finally {
       setCreating(false);
@@ -148,7 +162,10 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
     clearMessages();
     const link = buildInviteLink(invite);
     try {
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      if (
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === 'function'
+      ) {
         await navigator.clipboard.writeText(link);
         setCopiedId(invite.id);
         setTimeout(() => setCopiedId(null), 3000);
@@ -159,7 +176,9 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
     } catch (err) {
       console.error('Copy failed', err);
       window.prompt('Copy invite link', link);
-      setErrorMessage('Failed to copy link automatically — use the prompt to copy.');
+      setErrorMessage(
+        'Failed to copy link automatically — use the prompt to copy.',
+      );
     }
   };
 
@@ -187,7 +206,7 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="px-4 py-4 sm:p-6 space-y-6">
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-3xl font-bold">Pending Invites</h1>
@@ -196,10 +215,13 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
           </p>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={(open) => {
-          setDialogOpen(open);
-          if (!open) clearMessages();
-        }}>
+        <Dialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) clearMessages();
+          }}
+        >
           <DialogTrigger asChild>
             <Button>
               <Mail className="mr-2 h-4 w-4" />
@@ -210,7 +232,9 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create Invitation</DialogTitle>
-              <DialogDescription>Send an invitation link to a new user</DialogDescription>
+              <DialogDescription>
+                Send an invitation link to a new user
+              </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4">
@@ -232,7 +256,9 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
                   type="email"
                   placeholder="user@example.com"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
                 />
               </div>
 
@@ -240,7 +266,9 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
                 <Label htmlFor="role">Role</Label>
                 <Select
                   value={formData.role}
-                  onValueChange={(value) => setFormData({ ...formData, role: value })}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, role: value })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -290,7 +318,9 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
             </div>
             <div>
               <h3 className="font-semibold text-lg">No pending invites</h3>
-              <p className="text-sm text-muted-foreground">Create an invite to get started</p>
+              <p className="text-sm text-muted-foreground">
+                Create an invite to get started
+              </p>
             </div>
           </div>
         </Card>
@@ -322,8 +352,8 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
                         invite.status === 'pending'
                           ? 'default'
                           : invite.status === 'accepted'
-                          ? 'secondary'
-                          : 'destructive'
+                            ? 'secondary'
+                            : 'destructive'
                       }
                       className="capitalize"
                     >
@@ -378,7 +408,8 @@ const buildInviteLink = (invite: Invitation & { link?: string }) => {
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke invite?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to revoke this invite? The invitation link will no longer work.
+              Are you sure you want to revoke this invite? The invitation link
+              will no longer work.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

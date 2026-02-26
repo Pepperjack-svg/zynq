@@ -144,6 +144,19 @@ function getXhrErrorMessage(xhr: XMLHttpRequest): string {
   return fallback;
 }
 
+function formatEta(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—';
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.ceil(seconds % 60);
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  }
+  const h = Math.floor(seconds / 3600);
+  const m = Math.ceil((seconds % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
 function getCurrentLocalDateTime(): string {
   const now = new Date();
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
@@ -214,9 +227,14 @@ export default function FilesPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Callback ref: sets webkitdirectory when the input mounts so the native
-  // OS folder picker (not a file picker) opens on click.
+  // Ref used by handleUploadFolderClick to call .click() on Firefox fallback.
+  const folderFallbackRef = useRef<HTMLInputElement>(null);
+
+  // Callback ref: sets webkitdirectory AND stores in folderFallbackRef.
   const setFolderInputRef = useCallback((el: HTMLInputElement | null) => {
+    (
+      folderFallbackRef as React.MutableRefObject<HTMLInputElement | null>
+    ).current = el;
     if (el) el.setAttribute('webkitdirectory', '');
   }, []);
 
@@ -230,6 +248,9 @@ export default function FilesPage() {
   const uploadSpeedRef = useRef<
     Map<string, { lastTs: number; lastLoaded: number; smoothedBps: number }>
   >(new Map());
+  // Tracks when each upload XHR began so the first progress event can
+  // compute an immediate speed estimate (loaded / elapsed) instead of 0.
+  const uploadStartRef = useRef<Map<string, number>>(new Map());
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [pendingDuplicates, setPendingDuplicates] = useState<DuplicateItem[]>(
     [],
@@ -358,6 +379,7 @@ export default function FilesPage() {
 
   const removeUploadProgress = (progressId: string) => {
     uploadSpeedRef.current.delete(progressId);
+    uploadStartRef.current.delete(progressId);
     setUploadQueue((prev) => prev.filter((p) => p.id !== progressId));
   };
 
@@ -565,6 +587,81 @@ export default function FilesPage() {
     e.target.value = '';
   };
 
+  /**
+   * Opens a folder picker without triggering the browser's native
+   * "Upload N files to this site?" security dialog.
+   * Uses the File System Access API (showDirectoryPicker) in Chrome/Edge/Safari.
+   * Falls back to the hidden <input webkitdirectory> for Firefox.
+   */
+  const handleUploadFolderClick = async () => {
+    if (typeof window === 'undefined' || !('showDirectoryPicker' in window)) {
+      folderFallbackRef.current?.click();
+      return;
+    }
+
+    try {
+      type DirPickerWindow = Window & {
+        showDirectoryPicker: (opts?: {
+          mode?: string;
+        }) => Promise<FileSystemDirectoryHandle>;
+      };
+      const dirHandle = await (window as DirPickerWindow).showDirectoryPicker({
+        mode: 'read',
+      });
+
+      const allFilesWithPaths: { file: File; relativePath: string }[] = [];
+
+      const traverse = async (
+        handle: FileSystemDirectoryHandle,
+        prefix: string,
+      ) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for await (const [name, entry] of (handle as any).entries()) {
+          const fullPath = `${prefix}/${name}`;
+          if ((entry as { kind: string }).kind === 'file') {
+            const file = await (entry as FileSystemFileHandle).getFile();
+            allFilesWithPaths.push({ file, relativePath: fullPath });
+          } else if ((entry as { kind: string }).kind === 'directory') {
+            await traverse(entry as FileSystemDirectoryHandle, fullPath);
+          }
+        }
+      };
+
+      await traverse(dirHandle, dirHandle.name);
+
+      if (allFilesWithPaths.length === 0) {
+        toast({
+          title: 'Empty folder',
+          description: 'The selected folder contains no files.',
+        });
+        return;
+      }
+
+      const totalSize = allFilesWithPaths.reduce(
+        (sum, f) => sum + f.file.size,
+        0,
+      );
+
+      setPendingFolderUpload({
+        files: allFilesWithPaths.map(({ file, relativePath }) => {
+          const newFile = new File([file], file.name, { type: file.type });
+          Object.defineProperty(newFile, 'webkitRelativePath', {
+            value: relativePath,
+            writable: false,
+          });
+          return newFile;
+        }),
+        folderName: dirHandle.name,
+        totalSize,
+        fileCount: allFilesWithPaths.length,
+      });
+      setShowFolderUploadDialog(true);
+    } catch (err: unknown) {
+      if ((err as { name?: string })?.name === 'AbortError') return;
+      console.error('showDirectoryPicker error:', err);
+    }
+  };
+
   const handleFolderModalDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -650,8 +747,11 @@ export default function FilesPage() {
           const percent = Math.round((event.loaded / event.total) * 100);
           const now = performance.now();
           const current = uploadSpeedRef.current.get(progressId);
-          const previousTs = current?.lastTs ?? now;
-          const previousLoaded = current?.lastLoaded ?? event.loaded;
+          // On the first event, use time-since-send so deltaBytes = event.loaded
+          // and we get an immediate speed estimate instead of 0.
+          const startTs = uploadStartRef.current.get(progressId) ?? now;
+          const previousTs = current?.lastTs ?? startTs;
+          const previousLoaded = current?.lastLoaded ?? 0;
           const elapsedSeconds = (now - previousTs) / 1000;
           const deltaBytes = event.loaded - previousLoaded;
           const instantBps =
@@ -698,10 +798,12 @@ export default function FilesPage() {
               etaSeconds: 0,
             });
             uploadSpeedRef.current.delete(progressId);
+            uploadStartRef.current.delete(progressId);
             resolve();
           } else {
             updateUploadProgress(progressId, { status: 'error' });
             uploadSpeedRef.current.delete(progressId);
+            uploadStartRef.current.delete(progressId);
             reject(
               new ApiError(
                 getXhrErrorMessage(xhr),
@@ -719,6 +821,9 @@ export default function FilesPage() {
 
       xhr.open('PUT', fullUrl);
       xhr.withCredentials = true;
+      // Record send time so the first progress event can compute instantBps
+      // from byte 0 instead of showing no ETA until the second event.
+      uploadStartRef.current.set(progressId, performance.now());
       xhr.send(formData);
     });
   };
@@ -770,7 +875,16 @@ export default function FilesPage() {
     await uploadManager.processFilesParallel(
       fileEntries,
       async (entry) => {
+        // Returns '' for files > 200 MB — archives and videos skip dedup
         const fileHash = await uploadManager.calculateHash(entry.file);
+        if (!fileHash) {
+          readyToUpload.push({
+            file: entry.file,
+            hash: '',
+            parentId: entry.parentId,
+          });
+          return;
+        }
         try {
           const { isDuplicate, existingFile } = await fileApi.checkDuplicate(
             fileHash,
@@ -897,24 +1011,26 @@ export default function FilesPage() {
 
     try {
       updateUploadProgress(progressId, { status: 'checking' });
-      // Use web worker for hash calculation (non-blocking)
+      // Returns '' for files >200 MB — large archives/videos skip dedup
       const fileHash = await uploadManager.calculateHash(file);
 
-      // Check for duplicates before uploading (only for documents and images)
-      const { isDuplicate, existingFile } = await fileApi.checkDuplicate(
-        fileHash,
-        file.name,
-      );
+      if (fileHash) {
+        // Check for duplicates before uploading (only for documents and images)
+        const { isDuplicate, existingFile } = await fileApi.checkDuplicate(
+          fileHash,
+          file.name,
+        );
 
-      if (isDuplicate && existingFile) {
-        setPendingDuplicates([{ file, hash: fileHash, existingFile }]);
-        setShowDuplicateDialog(true);
-        removeUploadProgress(progressId);
-        e.target.value = '';
-        return;
+        if (isDuplicate && existingFile) {
+          setPendingDuplicates([{ file, hash: fileHash, existingFile }]);
+          setShowDuplicateDialog(true);
+          removeUploadProgress(progressId);
+          e.target.value = '';
+          return;
+        }
       }
 
-      // No duplicate, proceed with upload
+      // No duplicate (or large file bypassed dedup), proceed with upload
       await proceedWithUploadForId(file, fileHash, false, progressId);
       await loadFiles();
       emitStorageRefresh();
@@ -1596,11 +1712,12 @@ export default function FilesPage() {
                     <FileIcon className="h-4 w-4" />
                     Upload Files
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild className="gap-2">
-                    <label htmlFor="folder-upload-input">
-                      <Folder className="h-4 w-4" />
-                      Upload Folder
-                    </label>
+                  <DropdownMenuItem
+                    onClick={handleUploadFolderClick}
+                    className="gap-2"
+                  >
+                    <Folder className="h-4 w-4" />
+                    Upload Folder
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1646,7 +1763,7 @@ export default function FilesPage() {
                     ? ` ${activeUploads.length} files`
                     : ''}
                   {aggregateEtaSeconds !== undefined && aggregateEtaSeconds > 0
-                    ? ` • ${aggregateEtaSeconds}s left`
+                    ? ` • ${formatEta(aggregateEtaSeconds)} left`
                     : aggregateProgress >= 95
                       ? ' • a few seconds left'
                       : ''}
@@ -1662,7 +1779,7 @@ export default function FilesPage() {
         </div>
 
         {/* Search */}
-        <div className="relative max-w-md">
+        <div className="relative w-full sm:max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search files and folders..."
@@ -1680,7 +1797,7 @@ export default function FilesPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
             >
-              <div className="flex items-center h-10 px-3 rounded-lg bg-primary/5 border border-primary/20">
+              <div className="flex items-center h-11 sm:h-10 px-3 rounded-lg bg-primary/5 border border-primary/20">
                 <Checkbox
                   checked={allSelected}
                   className="h-4 w-4 border-muted-foreground/50 data-[state=checked]:border-primary"
@@ -1696,7 +1813,7 @@ export default function FilesPage() {
                   variant="ghost"
                   size="icon"
                   onClick={clearSelection}
-                  className="h-8 w-8 ml-1"
+                  className="h-9 w-9 sm:h-8 sm:w-8 ml-1"
                   title="Clear selection"
                 >
                   <X className="h-4 w-4" />
@@ -1706,7 +1823,7 @@ export default function FilesPage() {
                     variant="destructive"
                     size="sm"
                     onClick={handleBulkDelete}
-                    className="h-8 gap-1.5 px-2.5"
+                    className="h-9 sm:h-8 gap-1.5 px-3 sm:px-2.5"
                   >
                     <Trash2 className="h-4 w-4" />
                     <span className="text-xs">Delete</span>

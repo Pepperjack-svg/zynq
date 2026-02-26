@@ -56,6 +56,7 @@ describe('FileController', () => {
             checkDuplicate: jest.fn(),
             findById: jest.fn(),
             uploadFileContent: jest.fn(),
+            uploadFileContentStream: jest.fn(),
             downloadFile: jest.fn(),
             softDelete: jest.fn(),
             restore: jest.fn(),
@@ -246,16 +247,12 @@ describe('FileController', () => {
       jest.restoreAllMocks();
     });
 
-    it('should delegate to fileService.uploadFileContent', async () => {
-      const fileData = Buffer.from('file content');
+    it('should delegate to fileService.uploadFileContentStream', async () => {
       const mockMulterFile = {
         path: '/tmp/uploaded-file',
       } as Express.Multer.File;
-      const readFileSpy = jest
-        .spyOn(fs, 'readFile')
-        .mockResolvedValue(fileData);
       const unlinkSpy = jest.spyOn(fs, 'unlink').mockResolvedValue(undefined);
-      fileService.uploadFileContent.mockResolvedValue(mockFile as any);
+      fileService.uploadFileContentStream.mockResolvedValue(mockFile as any);
 
       await controller.uploadFileContent(
         mockUser as any,
@@ -263,12 +260,11 @@ describe('FileController', () => {
         mockMulterFile,
       );
 
-      expect(fileService.uploadFileContent).toHaveBeenCalledWith(
+      expect(fileService.uploadFileContentStream).toHaveBeenCalledWith(
         'file-123',
         'user-123',
-        fileData,
+        '/tmp/uploaded-file',
       );
-      expect(readFileSpy).toHaveBeenCalledWith('/tmp/uploaded-file');
       expect(unlinkSpy).toHaveBeenCalledWith('/tmp/uploaded-file');
     });
 

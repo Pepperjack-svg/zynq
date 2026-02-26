@@ -18,7 +18,7 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Throttle } from '@nestjs/throttler';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
@@ -36,7 +36,9 @@ import { getRequestOrigin } from '../../../common/utils/request-origin.util';
 import { MulterExceptionFilter } from '../../../common/filters/multer-exception.filter';
 import { diskStorage } from 'multer';
 
-const MAX_UPLOAD_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB hard limit per upload request
+// No hard size limit at the Multer layer — nginx enforces it via
+// client_max_body_size on the upload locations (currently unlimited).
+// Multer uses disk storage (tmpdir), so RAM is not a concern for large files.
 
 /**
  * File management endpoints: CRUD, upload, download, share, trash.
@@ -82,6 +84,7 @@ export class FileController {
   }
 
   @Post()
+  @Throttle({ default: { limit: 200, ttl: 60000 } })
   create(@CurrentUser() user: User, @Body() createFileDto: CreateFileDto) {
     return this.fileService.create(user.id, createFileDto);
   }
@@ -193,14 +196,14 @@ export class FileController {
   }
 
   @Put(':id/upload')
-  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @SkipThrottle()
   @UseFilters(MulterExceptionFilter)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
         destination: tmpdir(),
       }),
-      limits: { fileSize: MAX_UPLOAD_SIZE_BYTES, files: 1 },
+      limits: { files: 1 },
     }),
   )
   async uploadFileContent(
@@ -215,9 +218,14 @@ export class FileController {
       return { error: 'Uploaded file path not found' };
     }
 
+    // Stream the file through AES-256-GCM encryption directly from the temp
+    // file on disk — no full-file buffer in Node.js heap, safe for large files.
     try {
-      const data = await fs.readFile(file.path);
-      return this.fileService.uploadFileContent(id, user.id, data);
+      return await this.fileService.uploadFileContentStream(
+        id,
+        user.id,
+        file.path,
+      );
     } finally {
       await fs.unlink(file.path).catch(() => undefined);
     }

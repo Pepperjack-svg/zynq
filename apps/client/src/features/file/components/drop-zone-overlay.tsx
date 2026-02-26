@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { AnimatePresence, motion } from "framer-motion";
-import { Upload, FolderUp } from "lucide-react";
+import { AnimatePresence, motion } from 'framer-motion';
+import { Upload, FolderUp } from 'lucide-react';
 
 interface DropZoneOverlayProps {
   isActive: boolean;
@@ -23,15 +23,19 @@ export function DropZoneOverlay({ isActive }: DropZoneOverlayProps) {
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
-            transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
-            className="w-full max-w-md mx-8"
+            transition={{ duration: 0.2, type: 'spring', stiffness: 300 }}
+            className="w-full max-w-md mx-4 sm:mx-8"
           >
-            <div className="relative rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 p-12">
+            <div className="relative rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 p-8 sm:p-12">
               {/* Animated upload icon */}
               <div className="flex flex-col items-center gap-6">
                 <motion.div
                   animate={{ y: [0, -8, 0] }}
-                  transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                  transition={{
+                    duration: 1.5,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
                   className="relative"
                 >
                   <div className="h-20 w-20 rounded-2xl bg-primary/10 flex items-center justify-center">
@@ -42,7 +46,7 @@ export function DropZoneOverlay({ isActive }: DropZoneOverlayProps) {
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    transition={{ delay: 0.1, type: "spring" }}
+                    transition={{ delay: 0.1, type: 'spring' }}
                     className="absolute -bottom-2 -right-2 h-8 w-8 rounded-lg bg-amber-500 flex items-center justify-center shadow-lg"
                   >
                     <FolderUp className="h-4 w-4 text-white" />

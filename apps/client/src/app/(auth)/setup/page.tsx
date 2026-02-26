@@ -188,10 +188,10 @@ export default function SetupPage() {
         </div>
 
         {/* Right side - Setup Form */}
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="w-full max-w-sm space-y-8">
+        <div className="flex-1 flex items-start sm:items-center justify-center px-6 py-8 sm:p-8 overflow-y-auto">
+          <div className="w-full max-w-sm space-y-6 sm:space-y-8">
             {/* Mobile logo */}
-            <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
+            <div className="lg:hidden flex items-center justify-center gap-3 mb-2 sm:mb-6">
               <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center">
                 <HardDrive className="h-5 w-5 text-primary-foreground" />
               </div>
