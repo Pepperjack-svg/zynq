@@ -109,6 +109,19 @@ export class AuthController {
     );
   }
 
+  /** Re-issues a fresh JWT cookie for the current user (extends session). */
+  @Post('refresh')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  refresh(
+    @CurrentUser() user: User,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const token = this.authService.generateJwtToken(user);
+    response.cookie('jid', token, this.getCookieOptions());
+    return { success: true };
+  }
+
   /** Clears JWT cookie to log out user. */
   @Post('logout')
   @UseGuards(JwtAuthGuard)
