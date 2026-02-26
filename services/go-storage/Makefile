@@ -3,6 +3,12 @@ VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev
 LDFLAGS  := -ldflags "-s -w -X main.version=$(VERSION)"
 TRIMPATH := -trimpath
 
+# Default target — build the local binary.
+.DEFAULT_GOAL := all
+
+.PHONY: all
+all: build
+
 # ── Local build ──────────────────────────────────────────────────────────────
 
 .PHONY: build
@@ -36,7 +42,7 @@ lint: vet fmt-check
 # GOFLAGS is intentionally not used so targets are explicit.
 
 .PHONY: cross
-cross: cross-linux-amd64 cross-linux-arm64 cross-darwin-amd64 cross-windows-amd64
+cross: cross-linux-amd64 cross-linux-arm64 cross-darwin-amd64 cross-darwin-arm64 cross-windows-amd64
 
 .PHONY: cross-linux-amd64
 cross-linux-amd64:
@@ -52,6 +58,11 @@ cross-linux-arm64:
 cross-darwin-amd64:
 	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 \
 		go build $(TRIMPATH) $(LDFLAGS) -o bin/$(BINARY)-darwin-amd64 ./cmd/server
+
+.PHONY: cross-darwin-arm64
+cross-darwin-arm64:
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 \
+		go build $(TRIMPATH) $(LDFLAGS) -o bin/$(BINARY)-darwin-arm64 ./cmd/server
 
 .PHONY: cross-windows-amd64
 cross-windows-amd64:

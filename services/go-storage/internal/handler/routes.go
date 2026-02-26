@@ -42,7 +42,12 @@ func New(cfg *config.Config, backend store.Backend, logger *slog.Logger) http.Ha
 
 	// Assembly semaphore: cap concurrent CompleteUpload workers to prevent
 	// disk thrashing when many sessions finish simultaneously.
-	assemblySem := make(chan struct{}, cfg.MaxAssemblyWorkers)
+	// Clamp to at least 1 so a misconfigured zero value doesn't deadlock.
+	maxWorkers := cfg.MaxAssemblyWorkers
+	if maxWorkers < 1 {
+		maxWorkers = 1
+	}
+	assemblySem := make(chan struct{}, maxWorkers)
 
 	h := &Handler{
 		cfg:         cfg,

@@ -17,7 +17,9 @@ func ServiceToken(token string) func(http.Handler) http.Handler {
 			provided := r.Header.Get("X-Service-Token")
 			// Constant-time compare to prevent timing attacks.
 			if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"unauthorized"}`)) //nolint:errcheck
 				return
 			}
 			next.ServeHTTP(w, r)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -107,11 +108,23 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				h.metrics.DedupHits.Add(1)
 			}
 			h.metrics.BytesWritten.Add(result.Size)
+
+			// Create a hardlink from the CAS blob to the per-file storage path
+			// so that the standard download path ({ownerID}/{fileID}.enc) works
+			// without modification. os.Link is a single inode reference — no
+			// extra disk space is consumed. Falls back to no-op on failure (e.g.
+			// cross-device mount): the blob is accessible via CAS directly.
+			blobAbs := filepath.Join(h.cfg.StoragePath, result.BlobPath)
+			destAbs := filepath.Join(h.cfg.StoragePath, storagePath)
+			if mkErr := os.MkdirAll(filepath.Dir(destAbs), 0o750); mkErr == nil {
+				os.Link(blobAbs, destAbs) //nolint:errcheck — best-effort
+			}
+
 			h.logger.Info("upload complete (dedup)",
-				"path", result.BlobPath, "bytes", result.Size,
-				"sha256", result.SHA256, "is_new", result.IsNew)
+				"path", storagePath, "blob", result.BlobPath,
+				"bytes", result.Size, "sha256", result.SHA256, "is_new", result.IsNew)
 			writeJSON(w, http.StatusCreated, UploadResponse{
-				StoragePath: result.BlobPath,
+				StoragePath: storagePath,
 				Size:        result.Size,
 				SHA256:      result.SHA256,
 			})

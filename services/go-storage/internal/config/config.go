@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 )
@@ -37,16 +38,30 @@ type Config struct {
 	MaxAssemblyWorkers int
 }
 
-func Load() *Config {
+// Load reads configuration from environment variables and returns an error
+// if required values are missing or invalid.
+//
+// SERVICE_TOKEN is required unless INSECURE_STORAGE=true is explicitly set
+// (development/testing only). An empty token allows all requests through
+// without authentication, which is unsafe in production.
+func Load() (*Config, error) {
+	token := os.Getenv("SERVICE_TOKEN")
+	if token == "" && os.Getenv("INSECURE_STORAGE") != "true" {
+		return nil, fmt.Errorf(
+			"SERVICE_TOKEN is not set; set it to a strong random value, " +
+				"or set INSECURE_STORAGE=true to disable auth (dev only)",
+		)
+	}
+
 	return &Config{
 		Port:                 getEnv("STORAGE_PORT", "5000"),
 		StoragePath:          getEnv("STORAGE_PATH", "/data/files"),
-		ServiceToken:         getEnv("SERVICE_TOKEN", ""),
+		ServiceToken:         token,
 		MaxConcurrentUploads: getEnvInt("MAX_CONCURRENT_UPLOADS", 256),
 		SessionTTLHours:      getEnvInt("SESSION_TTL_HOURS", 24),
 		MinFreeBytes:         getEnvInt64("MIN_FREE_BYTES", 512*1024*1024),
 		MaxAssemblyWorkers:   getEnvInt("MAX_ASSEMBLY_WORKERS", 32),
-	}
+	}, nil
 }
 
 func getEnv(key, fallback string) string {
@@ -56,20 +71,29 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
+// getEnvInt returns the integer value of key, or fallback if the variable is
+// unset or unparseable. A configured value of 0 is accepted (caller may
+// interpret it as "disabled").
 func getEnvInt(key string, fallback int) int {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	if n, err := strconv.Atoi(v); err == nil {
+		return n
 	}
 	return fallback
 }
 
+// getEnvInt64 returns the int64 value of key, or fallback if the variable is
+// unset or unparseable. Negative values are rejected (sizes must be ≥ 0).
 func getEnvInt64(key string, fallback int64) int64 {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
-			return n
-		}
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
+		return n
 	}
 	return fallback
 }

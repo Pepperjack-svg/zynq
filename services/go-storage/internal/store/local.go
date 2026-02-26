@@ -51,6 +51,24 @@ func (l *Local) abs(path string) (string, error) {
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return "", fmt.Errorf("path %q escapes storage root", path)
 	}
+	// Resolve any symlinks so a link planted inside the root pointing outside
+	// is caught. EvalSymlinks fails if the path does not yet exist (e.g., a
+	// Write destination before the file is created), so only apply this check
+	// when the path already exists.
+	if _, statErr := os.Lstat(joined); statErr == nil {
+		real, evalErr := filepath.EvalSymlinks(joined)
+		if evalErr != nil {
+			return "", fmt.Errorf("path %q: resolve symlinks: %w", path, evalErr)
+		}
+		realRoot, evalErr := filepath.EvalSymlinks(l.root)
+		if evalErr != nil {
+			return "", fmt.Errorf("resolve storage root symlinks: %w", evalErr)
+		}
+		rel2, relErr := filepath.Rel(realRoot, real)
+		if relErr != nil || strings.HasPrefix(rel2, "..") {
+			return "", fmt.Errorf("path %q escapes storage root via symlink", path)
+		}
+	}
 	return joined, nil
 }
 
@@ -122,6 +140,9 @@ func (l *Local) Delete(path string) error {
 	abs, err := l.abs(path)
 	if err != nil {
 		return err
+	}
+	if abs == l.root {
+		return fmt.Errorf("refusing to delete storage root %q", l.root)
 	}
 	if err := os.RemoveAll(abs); err != nil && !os.IsNotExist(err) {
 		return err

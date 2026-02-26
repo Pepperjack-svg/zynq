@@ -139,10 +139,24 @@ export class StorageService implements OnModuleInit {
     const readStream = createReadStream(sourcePath);
     const writeStream = createWriteStream(tmpPath);
 
-    await pipeline(readStream, encryptStream, writeStream);
+    try {
+      await pipeline(readStream, encryptStream, writeStream);
+    } catch (err) {
+      // Destroy streams to avoid fd leaks, then remove the incomplete temp file.
+      readStream.destroy();
+      encryptStream.destroy();
+      writeStream.destroy();
+      await fs.unlink(tmpPath).catch(() => {});
+      throw err;
+    }
 
     const stat = await fs.stat(tmpPath);
-    await fs.rename(tmpPath, filePath);
+    try {
+      await fs.rename(tmpPath, filePath);
+    } catch (err) {
+      await fs.unlink(tmpPath).catch(() => {});
+      throw err;
+    }
 
     const combinedEncryptedDek = Buffer.concat([dekIv, encryptedDek]);
 

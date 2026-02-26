@@ -84,6 +84,8 @@ export function FileListRow({
     }
   };
 
+  const actionBtnClass =
+    'h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground';
   const hasSelect = !!onToggleSelect;
   const IconComponent = getFileIcon(file.name, file.mime_type, file.is_folder);
   const iconColor = getIconColor(file.name, file.mime_type, file.is_folder);
@@ -165,7 +167,7 @@ export function FileListRow({
           <Button
             variant="ghost"
             size="icon"
-            className="hidden sm:flex h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground"
+            className={`hidden sm:flex ${actionBtnClass}`}
             onClick={() => onPreview(file)}
             title="Preview"
           >
@@ -175,7 +177,7 @@ export function FileListRow({
         <Button
           variant="ghost"
           size="icon"
-          className="h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground"
+          className={actionBtnClass}
           onClick={() => onShareUser(file.id)}
           title="Share"
         >
@@ -183,11 +185,7 @@ export function FileListRow({
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground"
-            >
+            <Button variant="ghost" size="icon" className={actionBtnClass}>
               <MoreHorizontal className="h-3.5 w-3.5" />
             </Button>
           </DropdownMenuTrigger>

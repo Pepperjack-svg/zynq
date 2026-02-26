@@ -122,10 +122,31 @@ export function Sidebar({ user }: SidebarProps) {
     try {
       await systemApi.triggerUpdate();
       setUpdateStep('restarting');
-      setTimeout(() => {
-        setUpdateStep('done');
-        setTimeout(() => window.location.reload(), 3000);
-      }, 8000);
+
+      // Poll /health every 2 s (up to 120 s) instead of using a fixed timer.
+      // The container may come back faster or slower than 8 s depending on
+      // image size and host load. A real health check avoids both false "done"
+      // (page reloaded before service is ready) and unnecessary 8 s waits.
+      const start = Date.now();
+      const pollHealth = async (): Promise<void> => {
+        if (Date.now() - start > 120_000) {
+          setUpdateStep('error');
+          return;
+        }
+        try {
+          const res = await fetch('/health', { cache: 'no-store' });
+          if (res.ok) {
+            setUpdateStep('done');
+            setTimeout(() => window.location.reload(), 2000);
+            return;
+          }
+        } catch {
+          // Container still restarting — keep polling.
+        }
+        setTimeout(pollHealth, 2000);
+      };
+      // Give the container a 3 s head-start before the first health check.
+      setTimeout(pollHealth, 3000);
     } catch {
       setUpdateStep('error');
     }

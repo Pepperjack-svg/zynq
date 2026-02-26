@@ -58,9 +58,15 @@ func Sessions(uploadsDir string, ttl time.Duration, logger *slog.Logger) {
 // until ctx is cancelled. A first pass runs immediately at startup to flush
 // sessions left over from a previous crash or restart.
 //
+// The returned channel is closed when the goroutine exits, allowing the caller
+// to wait for the cleanup loop to finish before the process terminates.
+//
 // Recommended values: ttl=24h, interval=1h.
-func RunPeriodic(ctx context.Context, uploadsDir string, ttl, interval time.Duration, logger *slog.Logger) {
+func RunPeriodic(ctx context.Context, uploadsDir string, ttl, interval time.Duration, logger *slog.Logger) <-chan struct{} {
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
+
 		// Immediate first pass clears sessions from prior runs.
 		Sessions(uploadsDir, ttl, logger)
 
@@ -75,4 +81,5 @@ func RunPeriodic(ctx context.Context, uploadsDir string, ttl, interval time.Dura
 			}
 		}
 	}()
+	return done
 }

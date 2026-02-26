@@ -39,7 +39,10 @@ func TestWriteAndRead(t *testing.T) {
 	}
 	defer rc.Close()
 
-	got, _ := io.ReadAll(rc)
+	got, readErr := io.ReadAll(rc)
+	if readErr != nil {
+		t.Fatalf("ReadAll: %v", readErr)
+	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("Read content mismatch: got %q, want %q", got, want)
 	}

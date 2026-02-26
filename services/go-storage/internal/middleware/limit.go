@@ -5,6 +5,17 @@ import (
 	"strconv"
 )
 
+const (
+	// defaultUploadConcurrency is the fallback slot count when maxConcurrent ≤ 0.
+	defaultUploadConcurrency = 256
+
+	// retryAfterSeconds is the value of the Retry-After header sent on 503.
+	retryAfterSeconds = "5"
+
+	// capacityErrorPayload is the fixed JSON body returned when the limiter rejects a request.
+	capacityErrorPayload = `{"error":"server at capacity — retry in 5s"}`
+)
+
 // UploadLimiter caps the number of concurrently active upload goroutines using
 // a non-blocking channel semaphore. When the semaphore is full, new requests
 // receive HTTP 503 + Retry-After immediately rather than queuing — queuing under
@@ -23,7 +34,7 @@ type UploadLimiter struct {
 // NewUploadLimiter creates a limiter allowing at most maxConcurrent simultaneous uploads.
 func NewUploadLimiter(maxConcurrent int) *UploadLimiter {
 	if maxConcurrent <= 0 {
-		maxConcurrent = 256
+		maxConcurrent = defaultUploadConcurrency
 	}
 	return &UploadLimiter{sem: make(chan struct{}, maxConcurrent)}
 }
@@ -37,12 +48,12 @@ func (l *UploadLimiter) Limit(next http.Handler) http.Handler {
 			defer func() { <-l.sem }()
 			next.ServeHTTP(w, r)
 		default:
-			// Server at capacity — tell the client to back off for 5 seconds.
-			w.Header().Set("Retry-After", "5")
+			// Server at capacity — tell the client to back off.
+			w.Header().Set("Retry-After", retryAfterSeconds)
 			w.Header().Set("X-Active-Uploads", strconv.Itoa(len(l.sem)))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"error":"server at capacity — retry in 5s"}`)) //nolint:errcheck
+			w.Write([]byte(capacityErrorPayload)) //nolint:errcheck
 		}
 	})
 }

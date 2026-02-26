@@ -173,7 +173,10 @@ func (h *Handler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, 256) // optional body: one SHA-256 hex string
 	var req CompleteUploadRequest
-	json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck
+	if decErr := json.NewDecoder(r.Body).Decode(&req); decErr != nil && decErr.Error() != "EOF" {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
 
 	dir := h.sessionDir(sessionID)
 	metaBytes, err := os.ReadFile(filepath.Join(dir, "meta"))
@@ -206,6 +209,21 @@ func (h *Handler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 0 {
 		writeError(w, http.StatusBadRequest, "no parts uploaded")
 		return
+	}
+
+	// Verify parts are contiguous (part_00001, part_00002, …) with no gaps.
+	// A gap means a client skipped a part number; assembling would silently
+	// produce a corrupt file.
+	for i, p := range parts {
+		want := fmt.Sprintf("part_%05d", i+1)
+		if strings.HasSuffix(p, want) {
+			continue
+		}
+		if base := filepath.Base(p); base != want {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("non-contiguous parts: expected %s, got %s", want, base))
+			return
+		}
 	}
 
 	// Stream all parts in sequence through a hasher into the storage backend.

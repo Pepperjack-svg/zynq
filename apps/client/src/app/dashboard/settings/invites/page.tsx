@@ -94,7 +94,7 @@ export default function InvitesPage() {
     if (invite.token)
       return `${window.location.origin}/register?inviteToken=${invite.token}`;
     if (invite.id)
-      return `${window.location.origin}/register?inviteId=${invite.id}`;
+      return `${window.location.origin}/register?invite=${invite.id}`;
     return window.location.origin;
   };
 

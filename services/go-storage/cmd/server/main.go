@@ -21,10 +21,10 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	cfg := config.Load()
-
-	if cfg.ServiceToken == "" {
-		logger.Warn("SERVICE_TOKEN is not set — all requests will be accepted (dev mode only)")
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Error("configuration error", "err", err)
+		os.Exit(1)
 	}
 
 	backend, err := store.NewLocal(cfg.StoragePath)
@@ -41,10 +41,11 @@ func main() {
 	// Session cleanup goroutine reclaims disk space from abandoned uploads.
 	// A client that calls InitUpload then disconnects (crash, timeout, network
 	// drop) leaves a session directory that would otherwise live forever.
+	var cleanupDone <-chan struct{}
 	if cfg.SessionTTLHours > 0 {
 		uploadsDir := filepath.Join(cfg.StoragePath, ".uploads")
 		ttl := time.Duration(cfg.SessionTTLHours) * time.Hour
-		cleanup.RunPeriodic(ctx, uploadsDir, ttl, 1*time.Hour, logger)
+		cleanupDone = cleanup.RunPeriodic(ctx, uploadsDir, ttl, 1*time.Hour, logger)
 		logger.Info("session cleanup enabled",
 			"ttl_hours", cfg.SessionTTLHours,
 			"uploads_dir", uploadsDir,
@@ -102,5 +103,11 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "err", err)
 	}
+
+	// Wait for the cleanup goroutine to finish its current pass.
+	if cleanupDone != nil {
+		<-cleanupDone
+	}
+
 	logger.Info("storage service stopped")
 }

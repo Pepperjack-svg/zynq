@@ -1,6 +1,9 @@
 # build.ps1 — cross-compile the storage service from Windows PowerShell.
 # Equivalent to `make cross` for environments without GNU Make.
 #
+# Compatible with PowerShell 5.1+ (ships with Windows 10/11).
+# The ?? null-coalescing operator requires PS7+; use if/else here for PS5.1.
+#
 # Usage:
 #   .\build.ps1              # all targets
 #   .\build.ps1 -Target linux-amd64
@@ -15,7 +18,12 @@ $CmdPath = "./cmd/server"
 $BinDir = "bin"
 
 if (-not $Version) {
-    $Version = (git describe --tags --always --dirty 2>$null) ?? "dev"
+    $gitVersion = git describe --tags --always --dirty 2>$null
+    if ($gitVersion) {
+        $Version = $gitVersion
+    } else {
+        $Version = "dev"
+    }
 }
 
 $LdFlags = "-s -w -X main.version=$Version"
@@ -24,6 +32,7 @@ $Targets = @(
     @{ GOOS = "linux";   GOARCH = "amd64"; Ext = "" }
     @{ GOOS = "linux";   GOARCH = "arm64"; Ext = "" }
     @{ GOOS = "darwin";  GOARCH = "amd64"; Ext = "" }
+    @{ GOOS = "darwin";  GOARCH = "arm64"; Ext = "" }
     @{ GOOS = "windows"; GOARCH = "amd64"; Ext = ".exe" }
 )
 
@@ -36,7 +45,7 @@ foreach ($t in $Targets) {
         continue
     }
 
-    Write-Host "Building $name ..."
+    Write-Output "Building $name ..."
     $env:CGO_ENABLED = "0"
     $env:GOOS        = $t.GOOS
     $env:GOARCH      = $t.GOARCH
@@ -53,4 +62,4 @@ Remove-Item Env:CGO_ENABLED -ErrorAction SilentlyContinue
 Remove-Item Env:GOOS        -ErrorAction SilentlyContinue
 Remove-Item Env:GOARCH      -ErrorAction SilentlyContinue
 
-Write-Host "Done. Binaries in ./$BinDir/"
+Write-Output "Done. Binaries in ./$BinDir/"
