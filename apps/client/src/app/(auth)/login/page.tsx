@@ -1,24 +1,24 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, Loader2, HardDrive } from "lucide-react";
-import { useAuth } from "@/context/AuthContext";
-import { authApi, ApiError } from "@/lib/api";
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Eye, EyeOff, Loader2, HardDrive } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { authApi, ApiError } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
   const { login, loading: authLoading, needsSetup } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const [formData, setFormData] = useState({
-    email: "",
-    password: "",
+    email: '',
+    password: '',
   });
 
   // If still checking auth status, show loading
@@ -42,25 +42,28 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError("");
+    setError('');
 
     try {
       const data = await authApi.login(formData);
       login(data);
-      router.push("/dashboard/files");
+      router.push('/dashboard/files');
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 401) {
-          setError("Invalid email or password.");
+          setError('Invalid email or password.');
         } else if (err.statusCode === 429) {
-          setError("Too many attempts. Please wait and try again.");
+          setError('Too many attempts. Please wait and try again.');
         } else {
-          setError(err.message || "Login failed. Please try again.");
+          setError(err.message || 'Login failed. Please try again.');
         }
-      } else if (err instanceof TypeError && err.message === "Failed to fetch") {
-        setError("Unable to connect to the server.");
+      } else if (
+        err instanceof TypeError &&
+        err.message === 'Failed to fetch'
+      ) {
+        setError('Unable to connect to the server.');
       } else {
-        setError("Something went wrong. Please try again.");
+        setError('Something went wrong. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -80,12 +83,13 @@ export default function LoginPage() {
 
         <div className="space-y-6">
           <h1 className="text-4xl font-bold leading-tight">
-            Secure, self-hosted<br />
+            Secure, self-hosted
+            <br />
             file storage
           </h1>
           <p className="text-lg text-muted-foreground max-w-md">
-            Store, share, and manage your files with complete privacy and control.
-            Enterprise-grade encryption, zero external dependencies.
+            Store, share, and manage your files with complete privacy and
+            control. Enterprise-grade encryption, zero external dependencies.
           </p>
         </div>
 
@@ -95,10 +99,10 @@ export default function LoginPage() {
       </div>
 
       {/* Right side - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-sm space-y-8">
+      <div className="flex-1 flex items-start sm:items-center justify-center px-6 py-8 sm:p-8 overflow-y-auto">
+        <div className="w-full max-w-sm space-y-6 sm:space-y-8">
           {/* Mobile logo */}
-          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
+          <div className="lg:hidden flex items-center justify-center gap-3 mb-2 sm:mb-6">
             <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center">
               <HardDrive className="h-5 w-5 text-primary-foreground" />
             </div>
@@ -106,7 +110,9 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-2">
-            <h2 className="text-2xl font-semibold tracking-tight">Welcome back</h2>
+            <h2 className="text-2xl font-semibold tracking-tight">
+              Welcome back
+            </h2>
             <p className="text-muted-foreground">
               Sign in to your account to continue
             </p>
@@ -126,7 +132,9 @@ export default function LoginPage() {
                 type="email"
                 placeholder="you@example.com"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
                 required
                 disabled={loading}
                 className="h-10"
@@ -146,10 +154,12 @@ export default function LoginPage() {
               <div className="relative">
                 <Input
                   id="password"
-                  type={showPassword ? "text" : "password"}
+                  type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, password: e.target.value })
+                  }
                   required
                   disabled={loading}
                   className="h-10 pr-10"
@@ -160,7 +170,11 @@ export default function LoginPage() {
                   className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground transition-colors"
                   disabled={loading}
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
                 </button>
               </div>
             </div>
