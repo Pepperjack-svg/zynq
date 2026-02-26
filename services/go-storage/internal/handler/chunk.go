@@ -47,7 +47,9 @@ func (h *Handler) sessionDir(sessionID string) string {
 
 func newSessionID() string {
 	b := make([]byte, 16)
-	rand.Read(b) //nolint:errcheck
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand unavailable: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }
 

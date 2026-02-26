@@ -7,10 +7,9 @@ ARG TARGETARCH=amd64
 
 WORKDIR /build
 
-# Copy go.sum alongside go.mod so `go mod download` verifies checksums against
-# the lockfile — prevents a compromised module mirror from injecting code.
-COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+# No external dependencies — go mod tidy generates an empty go.sum.
+COPY go.mod ./
+RUN go mod tidy
 
 COPY . .
 
