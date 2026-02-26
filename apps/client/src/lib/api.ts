@@ -289,6 +289,18 @@ async function fetchApi<T>(
   }
 
   if (!response.ok) {
+    // On 401, the session has expired or was invalidated. Redirect to login
+    // so the user can re-authenticate instead of seeing confusing error toasts.
+    // Skip redirect for auth endpoints themselves to avoid loops.
+    if (
+      response.status === 401 &&
+      typeof window !== 'undefined' &&
+      !endpoint.startsWith('/auth/')
+    ) {
+      window.location.href = '/login';
+      // Return a never-settling promise to stop further execution
+      return new Promise<never>(() => {});
+    }
     throw await toApiError(response);
   }
 

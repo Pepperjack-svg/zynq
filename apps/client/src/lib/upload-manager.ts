@@ -166,6 +166,12 @@ class UploadManager {
   }
 
   async calculateHash(file: File): Promise<string> {
+    // Skip hashing for large files to prevent OOM in the browser.
+    // Archives, videos, and ISO images are never checked for duplicates
+    // anyway (see DEDUP_EXTENSIONS), so returning '' is always safe here.
+    const MAX_HASH_BYTES = 200 * 1024 * 1024; // 200 MB
+    if (file.size > MAX_HASH_BYTES) return '';
+
     const id = `hash-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     // Read file content

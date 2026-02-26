@@ -132,6 +132,27 @@ describe('UploadManager', () => {
       manager.destroy();
     });
 
+    it('returns empty string for files larger than 200 MB', async () => {
+      const mod = await createManager();
+      const manager = mod.uploadManager;
+
+      // Create a fake File whose .size property exceeds the 200 MB threshold.
+      // We do NOT provide real content — the guard must short-circuit before
+      // calling arrayBuffer(), so even a 0-byte blob with a spoofed size is fine.
+      const largefile = new File([], 'archive.zip', {
+        type: 'application/zip',
+      });
+      Object.defineProperty(largefile, 'size', {
+        value: 201 * 1024 * 1024, // 201 MB
+        writable: false,
+      });
+
+      const hash = await manager.calculateHash(largefile);
+      expect(hash).toBe('');
+
+      manager.destroy();
+    });
+
     it('delegates to worker when available', async () => {
       const mod = await createManager();
       const manager = mod.uploadManager;

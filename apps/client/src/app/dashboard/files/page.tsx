@@ -1010,24 +1010,26 @@ export default function FilesPage() {
 
     try {
       updateUploadProgress(progressId, { status: 'checking' });
-      // Use web worker for hash calculation (non-blocking)
+      // Returns '' for files >200 MB — large archives/videos skip dedup
       const fileHash = await uploadManager.calculateHash(file);
 
-      // Check for duplicates before uploading (only for documents and images)
-      const { isDuplicate, existingFile } = await fileApi.checkDuplicate(
-        fileHash,
-        file.name,
-      );
+      if (fileHash) {
+        // Check for duplicates before uploading (only for documents and images)
+        const { isDuplicate, existingFile } = await fileApi.checkDuplicate(
+          fileHash,
+          file.name,
+        );
 
-      if (isDuplicate && existingFile) {
-        setPendingDuplicates([{ file, hash: fileHash, existingFile }]);
-        setShowDuplicateDialog(true);
-        removeUploadProgress(progressId);
-        e.target.value = '';
-        return;
+        if (isDuplicate && existingFile) {
+          setPendingDuplicates([{ file, hash: fileHash, existingFile }]);
+          setShowDuplicateDialog(true);
+          removeUploadProgress(progressId);
+          e.target.value = '';
+          return;
+        }
       }
 
-      // No duplicate, proceed with upload
+      // No duplicate (or large file bypassed dedup), proceed with upload
       await proceedWithUploadForId(file, fileHash, false, progressId);
       await loadFiles();
       emitStorageRefresh();
