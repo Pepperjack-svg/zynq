@@ -874,7 +874,16 @@ export default function FilesPage() {
     await uploadManager.processFilesParallel(
       fileEntries,
       async (entry) => {
+        // Returns '' for files > 200 MB — archives and videos skip dedup
         const fileHash = await uploadManager.calculateHash(entry.file);
+        if (!fileHash) {
+          readyToUpload.push({
+            file: entry.file,
+            hash: '',
+            parentId: entry.parentId,
+          });
+          return;
+        }
         try {
           const { isDuplicate, existingFile } = await fileApi.checkDuplicate(
             fileHash,
