@@ -226,12 +226,14 @@ export default function MonitoringPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <ToastContainer />
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Monitoring</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+            Monitoring
+          </h1>
           <p className="text-muted-foreground mt-1">
             System overview and resource usage
           </p>
@@ -241,7 +243,7 @@ export default function MonitoringPage() {
           size="sm"
           onClick={handleRefresh}
           disabled={refreshing}
-          className="gap-2"
+          className="gap-2 w-full sm:w-auto"
         >
           <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
           Refresh
@@ -249,7 +251,7 @@ export default function MonitoringPage() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         {/* System Storage */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -426,19 +428,19 @@ export default function MonitoringPage() {
                     <TableHead className="text-muted-foreground font-medium">
                       Name
                     </TableHead>
-                    <TableHead className="text-muted-foreground font-medium">
+                    <TableHead className="text-muted-foreground font-medium hidden sm:table-cell">
                       Email
                     </TableHead>
-                    <TableHead className="text-muted-foreground font-medium">
+                    <TableHead className="text-muted-foreground font-medium hidden md:table-cell">
                       Role
                     </TableHead>
                     <TableHead className="text-muted-foreground font-medium">
-                      Storage Used
+                      Used
                     </TableHead>
-                    <TableHead className="text-muted-foreground font-medium">
+                    <TableHead className="text-muted-foreground font-medium hidden sm:table-cell">
                       Quota
                     </TableHead>
-                    <TableHead className="text-muted-foreground font-medium">
+                    <TableHead className="text-muted-foreground font-medium hidden lg:table-cell">
                       Usage
                     </TableHead>
                     <TableHead className="text-muted-foreground font-medium text-right">
@@ -461,10 +463,10 @@ export default function MonitoringPage() {
                         <TableCell className="font-medium">
                           {user.name}
                         </TableCell>
-                        <TableCell className="text-muted-foreground">
+                        <TableCell className="text-muted-foreground hidden sm:table-cell">
                           {user.email}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden md:table-cell">
                           <Badge
                             variant={
                               user.role === 'owner' ? 'default' : 'secondary'
@@ -489,7 +491,7 @@ export default function MonitoringPage() {
                             {formatBytes(storageInfo?.usedBytes || 0)}
                           </span>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           {storageInfo?.isUnlimited ? (
                             <span className="text-primary font-medium">
                               Unlimited
@@ -500,7 +502,7 @@ export default function MonitoringPage() {
                             </span>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden lg:table-cell">
                           <div className="w-28">
                             <Progress
                               value={Math.min(usedPercent, 100)}
@@ -533,7 +535,8 @@ export default function MonitoringPage() {
                             size="sm"
                             onClick={() => openQuotaDialog(user)}
                           >
-                            Edit quota
+                            <span className="hidden sm:inline">Edit quota</span>
+                            <span className="sm:hidden">Edit</span>
                           </Button>
                         </TableCell>
                       </TableRow>

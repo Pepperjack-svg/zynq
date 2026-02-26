@@ -1776,7 +1776,7 @@ export default function FilesPage() {
         </div>
 
         {/* Search */}
-        <div className="relative max-w-md">
+        <div className="relative w-full sm:max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search files and folders..."
@@ -1794,7 +1794,7 @@ export default function FilesPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
             >
-              <div className="flex items-center h-10 px-3 rounded-lg bg-primary/5 border border-primary/20">
+              <div className="flex items-center h-11 sm:h-10 px-3 rounded-lg bg-primary/5 border border-primary/20">
                 <Checkbox
                   checked={allSelected}
                   className="h-4 w-4 border-muted-foreground/50 data-[state=checked]:border-primary"
@@ -1810,7 +1810,7 @@ export default function FilesPage() {
                   variant="ghost"
                   size="icon"
                   onClick={clearSelection}
-                  className="h-8 w-8 ml-1"
+                  className="h-9 w-9 sm:h-8 sm:w-8 ml-1"
                   title="Clear selection"
                 >
                   <X className="h-4 w-4" />
@@ -1820,7 +1820,7 @@ export default function FilesPage() {
                     variant="destructive"
                     size="sm"
                     onClick={handleBulkDelete}
-                    className="h-8 gap-1.5 px-2.5"
+                    className="h-9 sm:h-8 gap-1.5 px-3 sm:px-2.5"
                   >
                     <Trash2 className="h-4 w-4" />
                     <span className="text-xs">Delete</span>

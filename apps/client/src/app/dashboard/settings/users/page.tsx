@@ -529,13 +529,13 @@ export default function UsersPage() {
                   <TableHead className="text-muted-foreground font-medium">
                     Name
                   </TableHead>
-                  <TableHead className="text-muted-foreground font-medium">
+                  <TableHead className="text-muted-foreground font-medium hidden sm:table-cell">
                     Email
                   </TableHead>
                   <TableHead className="text-muted-foreground font-medium">
                     Role
                   </TableHead>
-                  <TableHead className="text-muted-foreground font-medium">
+                  <TableHead className="text-muted-foreground font-medium hidden md:table-cell">
                     Joined
                   </TableHead>
                   <TableHead className="w-[50px]"></TableHead>
@@ -549,7 +549,7 @@ export default function UsersPage() {
                       className="border-border hover:bg-secondary/50 transition-colors"
                     >
                       <TableCell className="font-medium">{user.name}</TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-muted-foreground hidden sm:table-cell">
                         {user.email}
                       </TableCell>
                       <TableCell>
@@ -568,7 +568,7 @@ export default function UsersPage() {
                           {user.role}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-muted-foreground hidden md:table-cell">
                         {user.created_at
                           ? new Date(user.created_at).toLocaleDateString()
                           : 'N/A'}
@@ -641,16 +641,16 @@ export default function UsersPage() {
                     <TableHead className="text-muted-foreground font-medium">
                       Email
                     </TableHead>
-                    <TableHead className="text-muted-foreground font-medium">
+                    <TableHead className="text-muted-foreground font-medium hidden sm:table-cell">
                       Role
                     </TableHead>
                     <TableHead className="text-muted-foreground font-medium">
                       Status
                     </TableHead>
-                    <TableHead className="text-muted-foreground font-medium">
+                    <TableHead className="text-muted-foreground font-medium hidden md:table-cell">
                       Created
                     </TableHead>
-                    <TableHead className="text-muted-foreground font-medium">
+                    <TableHead className="text-muted-foreground font-medium hidden md:table-cell">
                       Expires
                     </TableHead>
                     <TableHead className="w-[100px]"></TableHead>
@@ -665,7 +665,7 @@ export default function UsersPage() {
                       <TableCell className="font-medium">
                         {invite.email}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <Badge variant="secondary" className="capitalize">
                           {invite.role}
                         </Badge>
@@ -684,18 +684,18 @@ export default function UsersPage() {
                           {invite.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-muted-foreground hidden md:table-cell">
                         {formatDate(invite.created_at)}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-muted-foreground hidden md:table-cell">
                         {formatDate(invite.expires_at)}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 sm:gap-2">
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8"
+                            className="h-9 w-9 sm:h-8 sm:w-8"
                             onClick={() => handleCopyInviteLink(invite)}
                             disabled={invite.status !== 'pending'}
                           >
@@ -709,7 +709,7 @@ export default function UsersPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8 text-destructive"
+                              className="h-9 w-9 sm:h-8 sm:w-8 text-destructive"
                               onClick={() => handleRevokeInvite(invite.id)}
                               disabled={revokingInviteId === invite.id}
                             >

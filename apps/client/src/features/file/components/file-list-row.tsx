@@ -101,7 +101,7 @@ export function FileListRow({
   return (
     <div
       className={cn(
-        'group flex h-12 cursor-pointer items-center gap-3 px-5 py-0 transition-colors duration-100',
+        'group flex h-14 sm:h-12 cursor-pointer items-center gap-3 px-3 sm:px-5 py-0 transition-colors duration-100',
         'hover:bg-muted/40',
         isSelected && 'bg-primary/5 hover:bg-primary/8',
       )}
@@ -158,14 +158,14 @@ export function FileListRow({
 
       {/* Actions — always visible */}
       <div
-        className="flex w-28 shrink-0 items-center justify-end gap-1.5"
+        className="flex w-20 sm:w-28 shrink-0 items-center justify-end gap-0.5 sm:gap-1.5"
         onClick={(e) => e.stopPropagation()}
       >
         {!file.is_folder && onPreview && (
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            className="hidden sm:flex h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground"
             onClick={() => onPreview(file)}
             title="Preview"
           >
@@ -175,7 +175,7 @@ export function FileListRow({
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+          className="h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground"
           onClick={() => onShareUser(file.id)}
           title="Share"
         >
@@ -186,7 +186,7 @@ export function FileListRow({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              className="h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground"
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </Button>
