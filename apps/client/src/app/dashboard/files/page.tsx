@@ -51,7 +51,6 @@ import {
 import {
   fileApi,
   userApi,
-  authApi,
   getApiBaseUrl,
   type FileMetadata,
   type ShareableUser,
@@ -223,11 +222,6 @@ export default function FilesPage() {
         ]);
       }
     }
-  }, []);
-
-  // Proactively refresh JWT on mount so long-running uploads don't expire the session.
-  useEffect(() => {
-    authApi.refresh().catch(() => {});
   }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -880,17 +874,7 @@ export default function FilesPage() {
     await uploadManager.processFilesParallel(
       fileEntries,
       async (entry) => {
-        // calculateHash returns '' for files > 200 MB (archives/videos skip dedup)
         const fileHash = await uploadManager.calculateHash(entry.file);
-        if (!fileHash) {
-          // Large file or hash skipped — bypass duplicate check, upload directly
-          readyToUpload.push({
-            file: entry.file,
-            hash: '',
-            parentId: entry.parentId,
-          });
-          return;
-        }
         try {
           const { isDuplicate, existingFile } = await fileApi.checkDuplicate(
             fileHash,
@@ -1017,26 +1001,14 @@ export default function FilesPage() {
 
     try {
       updateUploadProgress(progressId, { status: 'checking' });
-      // Hash returns '' for files > 200 MB (archives/videos skip dedup anyway)
-      let fileHash = '';
-      try {
-        fileHash = await uploadManager.calculateHash(file);
-      } catch {
-        // Hash failed (e.g. OOM for very large file) — proceed without hash
-      }
+      // Use web worker for hash calculation (non-blocking)
+      const fileHash = await uploadManager.calculateHash(file);
 
       // Check for duplicates before uploading (only for documents and images)
-      let isDuplicate = false;
-      let existingFile = undefined;
-      if (fileHash) {
-        try {
-          const result = await fileApi.checkDuplicate(fileHash, file.name);
-          isDuplicate = result.isDuplicate;
-          existingFile = result.existingFile;
-        } catch {
-          // Duplicate check failed — treat as non-duplicate and proceed
-        }
-      }
+      const { isDuplicate, existingFile } = await fileApi.checkDuplicate(
+        fileHash,
+        file.name,
+      );
 
       if (isDuplicate && existingFile) {
         setPendingDuplicates([{ file, hash: fileHash, existingFile }]);

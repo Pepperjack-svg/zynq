@@ -18,7 +18,7 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Throttle, SkipThrottle } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
@@ -84,7 +84,6 @@ export class FileController {
   }
 
   @Post()
-  @Throttle({ default: { limit: 200, ttl: 60000 } })
   create(@CurrentUser() user: User, @Body() createFileDto: CreateFileDto) {
     return this.fileService.create(user.id, createFileDto);
   }
@@ -196,7 +195,7 @@ export class FileController {
   }
 
   @Put(':id/upload')
-  @SkipThrottle()
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @UseFilters(MulterExceptionFilter)
   @UseInterceptors(
     FileInterceptor('file', {

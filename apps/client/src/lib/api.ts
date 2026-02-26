@@ -354,9 +354,6 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-
-  refresh: () =>
-    fetchApi<{ success: boolean }>('/auth/refresh', { method: 'POST' }),
 };
 
 /** File API: CRUD, upload, download, share, trash operations */

@@ -166,12 +166,6 @@ class UploadManager {
   }
 
   async calculateHash(file: File): Promise<string> {
-    // Skip hashing for large files (> 200 MB) — file.arrayBuffer() would
-    // exhaust the browser heap for multi-GB archives / videos. Archives and
-    // videos are never checked for server-side duplicates anyway.
-    const MAX_HASH_BYTES = 200 * 1024 * 1024; // 200 MB
-    if (file.size > MAX_HASH_BYTES) return '';
-
     const id = `hash-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     // Read file content
